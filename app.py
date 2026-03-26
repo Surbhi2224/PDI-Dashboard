@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import gspread
-from google.oauth2.service_account import Credentials
 import plotly.graph_objects as go
 import plotly.io as pio
 import numpy as np
@@ -17,16 +16,28 @@ st_autorefresh(interval=5000, key="refresh")
 # ===== HEADER =====
 col1, col2 = st.columns([1,5])
 with col1:
-    st.image("logo.jpg", width=120)
+    st.write("")   # ✅ logo removed (fix error)
 with col2:
     st.title("PDI Production Dashboard")
     st.caption("Real-time Monitoring System")
 
-# ===== GOOGLE SHEETS (FIXED FOR CLOUD) =====
-creds = Credentials.from_service_account_info(
-    st.secrets["gcp_service_account"]
-)
-client = gspread.authorize(creds)
+# ===== GOOGLE SHEETS (WORKS LOCAL + CLOUD) =====
+try:
+    from google.oauth2.service_account import Credentials
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"]
+    )
+    client = gspread.authorize(creds)
+
+except:
+    from oauth2client.service_account import ServiceAccountCredentials
+    scope = ["https://spreadsheets.google.com/feeds",
+             "https://www.googleapis.com/auth/drive"]
+
+    creds = ServiceAccountCredentials.from_json_keyfile_name(
+        "credentials.json", scope
+    )
+    client = gspread.authorize(creds)
 
 # ===== LOAD FUNCTION =====
 @st.cache_data
@@ -151,7 +162,6 @@ elif page != "Major_Issues":
 
     df = load_sheet(page)
 
-    # Only Issue filter
     issues = df["Issue Type"].unique().tolist()
     selected = st.multiselect("🔍 Select Issues", issues)
 
