@@ -148,19 +148,13 @@ elif page == "Daily_Clearing":
     st.plotly_chart(fig)
 
 # ============================================
-# 📊 ISSUE PAGES (MODEL REMOVED)
+# 📊 ISSUE PAGES (NO MODEL, NO DATE)
 # ============================================
 elif page != "Major_Issues":
 
     df = load_sheet(page)
 
-    # Date filter only
-    if "Date" in df.columns:
-        df['Date'] = pd.to_datetime(df['Date'])
-        start, end = st.date_input("📅 Date Range",
-                                  [df['Date'].min(), df['Date'].max()])
-        df = df[(df['Date'] >= pd.to_datetime(start)) & (df['Date'] <= pd.to_datetime(end))]
-
+    # Only Issue filter
     issues = df["Issue Type"].unique().tolist()
     selected = st.multiselect("🔍 Select Issues", issues)
 
