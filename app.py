@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 import plotly.graph_objects as go
 import plotly.io as pio
 import numpy as np
@@ -22,12 +22,9 @@ with col2:
     st.title("PDI Production Dashboard")
     st.caption("Real-time Monitoring System")
 
-# ===== GOOGLE SHEETS =====
-scope = ["https://spreadsheets.google.com/feeds",
-         "https://www.googleapis.com/auth/drive"]
-
-creds = ServiceAccountCredentials.from_json_keyfile_name(
-    "credentials.json", scope
+# ===== GOOGLE SHEETS (FIXED FOR CLOUD) =====
+creds = Credentials.from_service_account_info(
+    st.secrets["gcp_service_account"]
 )
 client = gspread.authorize(creds)
 
