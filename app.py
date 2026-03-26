@@ -17,24 +17,29 @@ st_autorefresh(interval=5000, key="refresh")
 # ===== HEADER =====
 col1, col2 = st.columns([1,5])
 with col1:
-    st.write("")  # logo removed to avoid error
+    st.write("")
 with col2:
     st.title("PDI Production Dashboard")
     st.caption("Real-time Monitoring System")
 
-# ===== GOOGLE SHEETS (CLOUD ONLY) =====
+# ===== GOOGLE AUTH =====
+scope = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
+
 creds = Credentials.from_service_account_info(
-    st.secrets["gcp_service_account"]
+    st.secrets["gcp_service_account"],
+    scopes=scope
 )
+
 client = gspread.authorize(creds)
 
 # ===== LOAD FUNCTION =====
 @st.cache_data
 def load_sheet(name):
-    df = pd.DataFrame(client.open("PDI_Dashboard").worksheet(name).get_all_records())
-
-    if "Model" in df.columns:
-        df["Model"] = df["Model"].astype(str).str.strip()
+    sheet = client.open("PDI_Dashboard").worksheet(name)
+    df = pd.DataFrame(sheet.get_all_records())
 
     # Fix numeric columns
     for col in ["Plan", "Actual", "Pending", "Count"]:
