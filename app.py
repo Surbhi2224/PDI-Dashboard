@@ -10,8 +10,6 @@ from streamlit_autorefresh import st_autorefresh
 # ===== CONFIG =====
 pio.templates.default = "plotly_dark"
 st.set_page_config(layout="wide", page_title="PDI Dashboard")
-
-# AUTO REFRESH
 st_autorefresh(interval=5000, key="refresh")
 
 # ===== GOOGLE SHEETS =====
@@ -48,18 +46,20 @@ pages = [
 ]
 page = st.sidebar.radio("📂 Navigation", pages)
 
+st.markdown(f"## {page.replace('_',' ')}")  # Page title at top
+
 # ===== CHART FUNCTIONS =====
 def column_chart(df, x, y1, y2, title):
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=df[x], y=df[y1], name="Plan"))
-    fig.add_trace(go.Bar(x=df[x], y=df[y2], name="Actual"))
+    fig.add_trace(go.Bar(x=df[x], y=df[y1], name="Offered", marker_color="blue"))
+    fig.add_trace(go.Bar(x=df[x], y=df[y2], name="Pending", marker_color="orange"))
     fig.update_layout(title=title, barmode='group')
     return fig
 
 def stacked_chart(df, x, y1, y2, title):
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=df[x], y=df[y1], name="Plan"))
-    fig.add_trace(go.Bar(x=df[x], y=df[y2], name="Actual"))
+    fig.add_trace(go.Bar(x=df[x], y=df[y1], name="Offered", marker_color="blue"))
+    fig.add_trace(go.Bar(x=df[x], y=df[y2], name="Pending", marker_color="orange"))
     fig.update_layout(title=title, barmode='stack')
     return fig
 
@@ -72,16 +72,15 @@ def bar_chart(df, x, y, title, top_n=None):
     return fig
 
 # ============================================
-# 📊 EXECUTIVE SUMMARY
+# EXECUTIVE SUMMARY
 # ============================================
 if page == "Executive_Summary":
     df = load_sheet("Daily_Clearing")
     model_df = load_sheet("Model_Summary")
-
     if not df.empty:
         df['Date'] = pd.to_datetime(df['Date'])
-        models = df["Model"].unique().tolist()
-        model = st.selectbox("🚗 Select Model", ["All"] + models)
+        models = ["All"] + df["Model"].unique().tolist()
+        model = st.selectbox("🚗 Select Model", models)
         if model != "All":
             df = df[df["Model"] == model]
 
@@ -104,14 +103,14 @@ if page == "Executive_Summary":
         st.plotly_chart(column_chart(df, "Date", "Plan", "Actual", "Daily Performance"))
 
 # ============================================
-# 📅 DAILY CLEARING
+# DAILY CLEARING
 # ============================================
 elif page == "Daily_Clearing":
     df = load_sheet("Daily_Clearing")
     if not df.empty:
         df['Date'] = pd.to_datetime(df['Date'])
-        models = df["Model"].unique().tolist()
-        model = st.selectbox("🚗 Select Model", ["All"] + models)
+        models = ["All"] + df["Model"].unique().tolist()
+        model = st.selectbox("🚗 Select Model", models)
         if model != "All":
             df = df[df["Model"] == model]
 
@@ -135,14 +134,14 @@ elif page == "Daily_Clearing":
         st.plotly_chart(fig)
 
 # ============================================
-# 📊 ISSUE PAGES (TOP 10 + Dropdown Filter)
+# ISSUE PAGES (TOP 10 + Single Dropdown)
 # ============================================
 elif page != "Major_Issues":
     df = load_sheet(page)
     if not df.empty and "Issue Type" in df.columns and "Count" in df.columns:
         issues = df["Issue Type"].unique().tolist()
-        selected = st.multiselect("🔍 Select Issues", issues, default=issues)
-        if selected:
+        selected = st.multiselect("🔍 Select Issues", ["All"] + issues, default=["All"])
+        if "All" not in selected:
             df = df[df["Issue Type"].isin(selected)]
 
         st.subheader("📊 Top 10 Issues")
@@ -165,7 +164,7 @@ elif page != "Major_Issues":
         st.info("No data available for this page.")
 
 # ============================================
-# 📋 MAJOR ISSUES
+# MAJOR ISSUES
 # ============================================
 elif page == "Major_Issues":
     st.info("📄 Please check detailed data in Google Sheets")
