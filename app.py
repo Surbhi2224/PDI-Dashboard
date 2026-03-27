@@ -71,6 +71,16 @@ def bar_chart(df, x, y, title, top_n=None):
     fig.update_layout(title=title)
     return fig
 
+# ===== HELPER TO SHOW METRICS =====
+def show_metrics(df):
+    total_offered = df["Plan"].sum() if "Plan" in df.columns else 0
+    total_cleared = df["Actual"].sum() if "Actual" in df.columns else 0
+    total_issues = df["Count"].sum() if "Count" in df.columns else 0
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Offered", int(total_offered))
+    col2.metric("Total Cleared", int(total_cleared))
+    col3.metric("Total Issues", int(total_issues))
+
 # ============================================
 # EXECUTIVE SUMMARY
 # ============================================
@@ -79,6 +89,7 @@ if page == "Executive_Summary":
     model_df = load_sheet("Model_Summary")
     if not df.empty:
         df['Date'] = pd.to_datetime(df['Date'])
+        show_metrics(df)
         models = ["All"] + df["Model"].unique().tolist()
         model = st.selectbox("🚗 Select Model", models)
         if model != "All":
@@ -86,15 +97,6 @@ if page == "Executive_Summary":
 
         start, end = st.date_input("📅 Date Range", [df['Date'].min(), df['Date'].max()])
         df = df[(df['Date'] >= pd.to_datetime(start)) & (df['Date'] <= pd.to_datetime(end))]
-
-        total_plan = df["Plan"].sum()
-        total_actual = df["Actual"].sum()
-        efficiency = (total_actual / total_plan * 100) if total_plan > 0 else 0
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Offered", int(total_plan))
-        col2.metric("Total Cleared", int(total_actual))
-        col3.metric("Efficiency %", f"{efficiency:.2f}%")
 
         st.subheader("🚗 Model Requirement")
         st.plotly_chart(bar_chart(model_df, "Model", "Requirement", "Model Requirement"))
@@ -109,6 +111,7 @@ elif page == "Daily_Clearing":
     df = load_sheet("Daily_Clearing")
     if not df.empty:
         df['Date'] = pd.to_datetime(df['Date'])
+        show_metrics(df)
         models = ["All"] + df["Model"].unique().tolist()
         model = st.selectbox("🚗 Select Model", models)
         if model != "All":
@@ -134,11 +137,12 @@ elif page == "Daily_Clearing":
         st.plotly_chart(fig)
 
 # ============================================
-# ISSUE PAGES (TOP 10 + Single Dropdown)
+# ISSUE PAGES
 # ============================================
 elif page != "Major_Issues":
     df = load_sheet(page)
     if not df.empty and "Issue Type" in df.columns and "Count" in df.columns:
+        show_metrics(df)
         issues = df["Issue Type"].unique().tolist()
         selected = st.multiselect("🔍 Select Issues", ["All"] + issues, default=["All"])
         if "All" not in selected:
@@ -146,8 +150,6 @@ elif page != "Major_Issues":
 
         st.subheader("📊 Top 10 Issues")
         st.plotly_chart(bar_chart(df, "Issue Type", "Count", f"Top 10 Issues - {page}", top_n=10))
-
-        st.metric("Total Issues", int(df["Count"].sum()))
 
         # Pareto chart
         pareto = df.groupby("Issue Type")["Count"].sum().reset_index()
