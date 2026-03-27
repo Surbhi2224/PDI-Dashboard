@@ -5,21 +5,37 @@ from google.oauth2.service_account import Credentials
 import altair as alt
 
 # -----------------------------
-# Google Sheets Authentication
+# Page config
 # -----------------------------
-# Use your secrets.toml GOOGLE_SERVICE_ACCOUNT key
-service_account_info = st.secrets["GOOGLE_SERVICE_ACCOUNT"]
-creds = Credentials.from_service_account_info(service_account_info)
-client = gspread.authorize(creds)
+st.set_page_config(page_title="PDI Dashboard", layout="wide")
+st.title("PDI Dashboard - Top 10 Issues")
 
 # -----------------------------
-# Function to load sheet
+# Google Sheets Authentication
+# -----------------------------
+try:
+    service_account_info = st.secrets["GOOGLE_SERVICE_ACCOUNT"]
+
+    # Correct scopes for gspread
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
+    client = gspread.authorize(creds)
+
+except Exception as e:
+    st.error(f"Google Sheets Authentication Failed: {e}")
+    st.stop()
+
+# -----------------------------
+# Function to load any sheet
 # -----------------------------
 @st.cache_data
 def load_issue_sheet(sheet_name):
     """
-    Load Google Sheet, fix headers, convert Count to numeric,
-    and return top 10 issues as DataFrame.
+    Load a sheet from Google Sheets, fix headers, ensure numeric Count,
+    and return a DataFrame with top 10 issues by count.
     """
     try:
         sheet = client.open("PDI_Dashboard").worksheet(sheet_name)
@@ -40,23 +56,24 @@ def load_issue_sheet(sheet_name):
             else:
                 seen[h] = 0
 
+        # Create DataFrame
         df = pd.DataFrame(raw_data[1:], columns=headers)
 
-        # Keep only Issue Type and Count columns
-        issue_col = [c for c in df.columns if "Issue" in c or "Type" in c][0]
-        count_col = [c for c in df.columns if "Count" in c][0]
-        df = df[[issue_col, count_col]]
+        # Identify Issue Type and Count columns
+        possible_issue_col = [c for c in df.columns if "Issue" in c or "Type" in c]
+        possible_count_col = [c for c in df.columns if "Count" in c]
+
+        if not possible_issue_col or not possible_count_col:
+            st.warning(f"Sheet {sheet_name} is missing 'Issue Type' or 'Count' columns!")
+            return pd.DataFrame(columns=["Issue Type", "Count"])
+
+        df = df[[possible_issue_col[0], possible_count_col[0]]]
         df.columns = ["Issue Type", "Count"]
 
         # Convert Count to numeric
         df["Count"] = pd.to_numeric(df["Count"], errors="coerce").fillna(0).astype(int)
 
-        # For SQA sheet: move Paint-tagged issues to Paint category
-        if sheet_name.lower() == "sqa":
-            paint_issues = df[df["Issue Type"].str.lower().str.contains("paint")]
-            df = df[~df["Issue Type"].str.lower().str.contains("paint")]
-
-        # Sort descending by Count and take top 10
+        # Sort by Count descending and take top 10
         df_top10 = df.sort_values(by="Count", ascending=False).head(10).reset_index(drop=True)
 
         return df_top10
@@ -68,13 +85,12 @@ def load_issue_sheet(sheet_name):
 # -----------------------------
 # Streamlit UI
 # -----------------------------
-st.title("PDI Dashboard - Top 10 Issues")
-
 sheet_option = st.selectbox(
     "Select Issue Sheet",
     ["Testing_Issue", "SQA", "Paint Rundown", "DENT", "SCRATCH", "Other"]
 )
 
+# Load sheet
 df = load_issue_sheet(sheet_option)
 
 if df.empty:
@@ -83,7 +99,7 @@ else:
     st.subheader(f"Top 10 issues from {sheet_option}")
     st.dataframe(df)
 
-    # Plot bar chart
+    # Plot Bar chart
     chart = alt.Chart(df).mark_bar().encode(
         x=alt.X('Count:Q', title='Count'),
         y=alt.Y('Issue Type:N', sort='-x', title='Issue Type'),
