@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 import numpy as np
 from streamlit_autorefresh import st_autorefresh
+import os
 
 # ===== CONFIG =====
 pio.defaults.template = "plotly_dark"
@@ -16,13 +17,19 @@ st_autorefresh(interval=5000, key="refresh")
 
 # ===== HEADER =====
 col1, col2 = st.columns([1,5])
+
 with col1:
-    st.image("logo.jpg", width=120)
+    # Check if local logo exists; else fallback to online logo
+    if os.path.exists("logo.jpg"):
+        st.image("logo.jpg", width=120)
+    else:
+        st.image("https://raw.githubusercontent.com/YourUsername/YourRepo/main/logo.jpg", width=120)
+
 with col2:
     st.title("PDI Production Dashboard")
     st.caption("Real-time Monitoring System")
 
-# ===== GOOGLE SHEETS (FIXED FOR CLOUD) =====
+# ===== GOOGLE SHEETS =====
 creds = Credentials.from_service_account_info(
     st.secrets["gcp_service_account"]
 )
@@ -97,7 +104,6 @@ if page == "Executive_Summary":
     efficiency = (total_actual / total_plan * 100) if total_plan > 0 else 0
 
     col1, col2, col3 = st.columns(3)
-
     col1.metric("Total Offered", int(total_plan))
     col2.metric("Total Cleared", int(total_actual))
     col3.metric("Efficiency %", f"{efficiency:.2f}%")
@@ -162,7 +168,6 @@ elif page != "Major_Issues":
     df = df.sort_values(by="Count", ascending=False).head(10)
 
     st.metric("Total Issues", int(df["Count"].sum()))
-
     st.plotly_chart(bar_chart(df, "Issue Type", "Count", page))
 
     st.subheader("📊 Pareto Analysis")
@@ -172,8 +177,7 @@ elif page != "Major_Issues":
 
     figp = go.Figure()
     figp.add_trace(go.Bar(x=pareto["Issue Type"], y=pareto["Count"]))
-    figp.add_trace(go.Scatter(x=pareto["Issue Type"], y=pareto["Cum%"],
-                             yaxis='y2'))
+    figp.add_trace(go.Scatter(x=pareto["Issue Type"], y=pareto["Cum%"], yaxis='y2'))
     figp.update_layout(yaxis2=dict(overlaying='y', side='right'))
 
     st.plotly_chart(figp)
