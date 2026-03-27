@@ -57,19 +57,13 @@ page = st.sidebar.selectbox("Navigation", pages)
 if page == "Executive_Summary":
 
     df = load_sheet("Daily_Clearing")
-    model_df = load_sheet("Model_Summary")
 
     st.subheader("Executive Summary")
 
-    total_plan = df["Plan"].sum()
-    total_actual = df["Actual"].sum()
-    total_pending = df["Pending"].sum()
+    st.markdown(f"### Offered: {int(df['Plan'].sum())}")
+    st.markdown(f"### Cleared: {int(df['Actual'].sum())}")
+    st.markdown(f"### Pending: {int(df['Pending'].sum())}")
 
-    st.markdown(f"### Offered: {int(total_plan)}")
-    st.markdown(f"### Cleared: {int(total_actual)}")
-    st.markdown(f"### Pending: {int(total_pending)}")
-
-    # Chart
     fig = go.Figure()
     fig.add_bar(x=df["Date"], y=df["Plan"], name="Offered", marker_color="blue")
     fig.add_bar(x=df["Date"], y=df["Pending"], name="Pending", marker_color="orange")
@@ -86,22 +80,41 @@ elif page == "Daily_Clearing":
 
     st.subheader("Daily Clearing")
 
-    # Dropdown (clean)
+    # ===== DROPDOWN =====
     models = ["All"] + sorted(df["Model"].unique())
     selected_model = st.selectbox("Select Model", models)
 
     if selected_model != "All":
         df = df[df["Model"] == selected_model]
 
-    # Numbers on top
+    # ===== TOP NUMBERS =====
     st.markdown(f"### Offered: {int(df['Plan'].sum())}")
     st.markdown(f"### Cleared: {int(df['Actual'].sum())}")
     st.markdown(f"### Pending: {int(df['Pending'].sum())}")
 
-    # Chart
+    # ===== MODEL-WISE COLOR CHART =====
+    st.subheader("Model-wise Performance")
+
     fig = go.Figure()
-    fig.add_bar(x=df["Date"], y=df["Plan"], name="Offered", marker_color="blue")
-    fig.add_bar(x=df["Date"], y=df["Pending"], name="Pending", marker_color="orange")
+
+    models = df["Model"].unique()
+
+    colors = [
+        "#1f77b4", "#ff7f0e", "#2ca02c",
+        "#d62728", "#9467bd", "#8c564b"
+    ]
+
+    for i, model in enumerate(models):
+        model_df = df[df["Model"] == model]
+
+        fig.add_bar(
+            x=model_df["Date"],
+            y=model_df["Actual"],
+            name=model,
+            marker_color=colors[i % len(colors)]
+        )
+
+    fig.update_layout(barmode="group")
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -129,19 +142,17 @@ elif page != "Major_Issues":
 
     st.subheader(page.replace("_", " "))
 
-    # Clean dropdown with Select All
+    # ===== CLEAN DROPDOWN =====
     issues = df["Issue Type"].dropna().unique().tolist()
-
     selected = st.selectbox("Select Issue", ["All"] + issues)
 
     if selected != "All":
         df = df[df["Issue Type"] == selected]
 
-    # Total Issues on top
-    total_issues = int(df["Count"].sum())
-    st.markdown(f"### Total Issues: {total_issues}")
+    # ===== TOTAL ISSUES =====
+    st.markdown(f"### Total Issues: {int(df['Count'].sum())}")
 
-    # Bar chart (Top 10)
+    # ===== TOP 10 =====
     top10 = df.groupby("Issue Type")["Count"].sum().nlargest(10).reset_index()
 
     fig = go.Figure()
