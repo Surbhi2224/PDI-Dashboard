@@ -8,30 +8,41 @@ import numpy as np
 from streamlit_autorefresh import st_autorefresh
 
 # ===== CONFIG =====
-pio.templates.default = "plotly_dark"
+pio.defaults.template = "plotly_dark"
 st.set_page_config(layout="wide", page_title="PDI Dashboard")
 
-# ===== AUTO REFRESH =====
+# AUTO REFRESH
 st_autorefresh(interval=5000, key="refresh")
 
 # ===== GOOGLE SHEETS =====
-@st.cache_resource
-def gsheet_client():
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"])
-    return gspread.authorize(creds)
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
+          "https://www.googleapis.com/auth/drive"]
 
-client = gsheet_client()
+creds = Credentials.from_service_account_info(
+    st.secrets["gcp_service_account"],
+    scopes=SCOPES
+)
+client = gspread.authorize(creds)
 
 # ===== LOAD FUNCTION =====
 @st.cache_data
-def load_sheet(sheet_name):
+def load_sheet(name):
     try:
-        ws = client.open("PDI_Dashboard").worksheet(sheet_name)
-        df = pd.DataFrame(ws.get_all_records())
+        df = pd.DataFrame(client.open("PDI_Dashboard").worksheet(name).get_all_records())
     except Exception as e:
-        st.error(f"Error loading sheet {sheet_name}: {e}")
-        # Fallback empty DataFrame
-        df = pd.DataFrame()
+        st.error(f"Error loading sheet {name}: {e}")
+        return pd.DataFrame()  # empty df
+
+    if "Model" in df.columns:
+        df["Model"] = df["Model"].astype(str).str.strip()
+
+    for col in ["Plan", "Actual", "Pending", "Count", "Requirement"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+    if "Date" in df.columns:
+        df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
+
     return df
 
 # ===== SIDEBAR =====
@@ -57,11 +68,11 @@ def stacked_chart(df, x, y1, y2, title):
     fig.update_layout(title=title, barmode='stack')
     return fig
 
-def bar_chart_top10(df, x, y, title):
-    # Only top 10
-    df_top = df.sort_values(by=y, ascending=False).head(10)
+def bar_chart(df, x, y, title, top_n=None):
+    if top_n and y in df.columns:
+        df = df.nlargest(top_n, y)
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=df_top[x], y=df_top[y], text=df_top[y], textposition='outside'))
+    fig.add_trace(go.Bar(x=df[x], y=df[y], text=df[y], textposition='outside'))
     fig.update_layout(title=title)
     return fig
 
@@ -69,19 +80,18 @@ def bar_chart_top10(df, x, y, title):
 # 📊 EXECUTIVE SUMMARY
 # ============================================
 if page == "Executive_Summary":
-
     df = load_sheet("Daily_Clearing")
     model_df = load_sheet("Model_Summary")
 
+    models = df["Model"].unique().tolist() if not df.empty else []
+    model = st.selectbox("🚗 Select Model", ["All"] + models)
+
+    if model != "All":
+        df = df[df["Model"] == model]
+
     if not df.empty:
-        df['Date'] = pd.to_datetime(df['Date'])
-        models = df["Model"].astype(str).unique().tolist()
-        model = st.selectbox("🚗 Select Model", ["All"] + models)
-
-        if model != "All":
-            df = df[df["Model"] == model]
-
-        start, end = st.date_input("📅 Date Range", [df['Date'].min(), df['Date'].max()])
+        start, end = st.date_input("📅 Date Range",
+                                   [df['Date'].min(), df['Date'].max()])
         df = df[(df['Date'] >= pd.to_datetime(start)) & (df['Date'] <= pd.to_datetime(end))]
 
         total_plan = df["Plan"].sum()
@@ -93,7 +103,10 @@ if page == "Executive_Summary":
         col2.metric("Total Cleared", int(total_actual))
         col3.metric("Efficiency %", f"{efficiency:.2f}%")
 
-        st.subheader("📈 Daily Performance")
+        st.subheader("🚗 Model Requirement")
+        st.plotly_chart(bar_chart(model_df, "Model", "Requirement", "Model Requirement"))
+
+        st.subheader("📈 Performance")
         st.plotly_chart(column_chart(df, "Date", "Plan", "Actual", "Daily Performance"))
 
 # ============================================
@@ -101,27 +114,47 @@ if page == "Executive_Summary":
 # ============================================
 elif page == "Daily_Clearing":
     df = load_sheet("Daily_Clearing")
-    if not df.empty:
-        df['Date'] = pd.to_datetime(df['Date'])
-        models = df["Model"].astype(str).unique().tolist()
-        model = st.selectbox("🚗 Select Model", ["All"] + models)
-        if model != "All":
-            df = df[df["Model"] == model]
 
-        start, end = st.date_input("📅 Date Range", [df['Date'].min(), df['Date'].max()])
+    models = df["Model"].unique().tolist() if not df.empty else []
+    model = st.selectbox("🚗 Select Model", ["All"] + models)
+
+    if model != "All":
+        df = df[df["Model"] == model]
+
+    if not df.empty:
+        start, end = st.date_input("📅 Date Range",
+                                   [df['Date'].min(), df['Date'].max()])
         df = df[(df['Date'] >= pd.to_datetime(start)) & (df['Date'] <= pd.to_datetime(end))]
 
         st.subheader("📊 Daily Plan vs Actual")
         st.plotly_chart(column_chart(df, "Date", "Plan", "Actual", "Daily"))
 
+        df['Month'] = df['Date'].dt.to_period('M').astype(str)
+        monthly = df.groupby('Month')[['Plan','Actual']].sum().reset_index()
+
+        st.subheader("📈 Monthly Trend")
+        st.plotly_chart(stacked_chart(monthly, "Month", "Plan", "Actual", "Monthly"))
+
+        st.subheader("🔮 Forecast")
+        df = df.sort_values('Date')
+        df['Trend'] = np.poly1d(np.polyfit(range(len(df)), df['Actual'], 1))(range(len(df)))
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df['Date'], y=df['Actual'], name="Actual"))
+        fig.add_trace(go.Scatter(x=df['Date'], y=df['Trend'], name="Trend"))
+        st.plotly_chart(fig)
+
 # ============================================
-# 📊 ISSUE PAGES (TOP 10)
+# 📊 ISSUE PAGES
 # ============================================
 elif page != "Major_Issues":
     df = load_sheet(page)
     if not df.empty and "Issue Type" in df.columns and "Count" in df.columns:
-        st.subheader(f"🔝 Top 10 Issues - {page}")
-        st.plotly_chart(bar_chart_top10(df, "Issue Type", "Count", f"Top 10 Issues - {page}"))
+        st.subheader("📊 Top 10 Issues")
+        st.plotly_chart(bar_chart(df, "Issue Type", "Count", f"Top 10 Issues - {page}", top_n=10))
+        st.metric("Total Issues", int(df["Count"].sum()))
+    else:
+        st.info("No data available for this page.")
 
 # ============================================
 # 📋 MAJOR ISSUES
