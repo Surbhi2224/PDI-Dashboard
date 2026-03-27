@@ -15,13 +15,8 @@ st.set_page_config(layout="wide", page_title="PDI Dashboard")
 st_autorefresh(interval=5000, key="refresh")
 
 # ===== HEADER =====
-col1, col2 = st.columns([1,5])
-with col1:
-    # Streamlit friendly logo path (upload logo.jpg in same folder)
-    st.image("logo.jpg", width=120)
-with col2:
-    st.title("PDI Production Dashboard")
-    st.caption("Real-time Monitoring System")
+st.title("PDI Production Dashboard")
+st.caption("Real-time Monitoring System")
 
 # ===== GOOGLE SHEETS =====
 service_account_info = dict(st.secrets["gcp_service_account"])
