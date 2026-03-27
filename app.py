@@ -8,39 +8,41 @@ import numpy as np
 from streamlit_autorefresh import st_autorefresh
 
 # ===== CONFIG =====
-pio.templates.default = "plotly_dark"
+pio.defaults.template = "plotly_dark"
 st.set_page_config(layout="wide", page_title="PDI Dashboard")
 
-# ===== AUTO REFRESH =====
+# AUTO REFRESH
 st_autorefresh(interval=5000, key="refresh")
 
 # ===== HEADER =====
 col1, col2 = st.columns([1,5])
 with col1:
-    # Optional: remove or add your own logo
-    # st.image("logo.jpg", width=120)
-    pass
+    # Streamlit friendly logo path (upload logo.jpg in same folder)
+    st.image("logo.jpg", width=120)
 with col2:
     st.title("PDI Production Dashboard")
     st.caption("Real-time Monitoring System")
 
 # ===== GOOGLE SHEETS =====
-creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"])
+service_account_info = dict(st.secrets["gcp_service_account"])
+creds = Credentials.from_service_account_info(service_account_info)
 client = gspread.authorize(creds)
 
 # ===== LOAD FUNCTION =====
 @st.cache_data
-def load_sheet(sheet_name):
-    df = pd.DataFrame(client.open("PDI_Dashboard").worksheet(sheet_name).get_all_records())
-    
-    # Clean Model column
+def load_sheet(name):
+    df = pd.DataFrame(client.open("PDI_Dashboard").worksheet(name).get_all_records())
+
     if "Model" in df.columns:
         df["Model"] = df["Model"].astype(str).str.strip()
 
-    # Ensure numeric columns are correct
-    for col in ["Plan", "Actual", "Pending", "Count", "Requirement"]:
+    for col in ["Plan", "Actual", "Pending", "Count"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+    # Prioritize top 10 issues if 'Count' exists
+    if "Count" in df.columns:
+        df = df.sort_values("Count", ascending=False).head(10)
 
     return df
 
@@ -77,17 +79,19 @@ def bar_chart(df, x, y, title):
 # 📊 EXECUTIVE SUMMARY
 # ============================================
 if page == "Executive_Summary":
-
     df = load_sheet("Daily_Clearing")
     model_df = load_sheet("Model_Summary")
 
     df['Date'] = pd.to_datetime(df['Date'])
+
     models = df["Model"].unique().tolist()
     model = st.selectbox("🚗 Select Model", ["All"] + models)
+
     if model != "All":
         df = df[df["Model"] == model]
 
-    start, end = st.date_input("📅 Date Range", [df['Date'].min(), df['Date'].max()])
+    start, end = st.date_input("📅 Date Range",
+                              [df['Date'].min(), df['Date'].max()])
     df = df[(df['Date'] >= pd.to_datetime(start)) & (df['Date'] <= pd.to_datetime(end))]
 
     total_plan = df["Plan"].sum()
@@ -102,22 +106,24 @@ if page == "Executive_Summary":
     st.subheader("🚗 Model Requirement")
     st.plotly_chart(bar_chart(model_df, "Model", "Requirement", "Model Requirement"))
 
-    st.subheader("📈 Daily Performance")
+    st.subheader("📈 Performance")
     st.plotly_chart(column_chart(df, "Date", "Plan", "Actual", "Daily Performance"))
 
 # ============================================
 # 📅 DAILY CLEARING
 # ============================================
 elif page == "Daily_Clearing":
-
     df = load_sheet("Daily_Clearing")
     df['Date'] = pd.to_datetime(df['Date'])
+
     models = df["Model"].unique().tolist()
     model = st.selectbox("🚗 Select Model", ["All"] + models)
+
     if model != "All":
         df = df[df["Model"] == model]
 
-    start, end = st.date_input("📅 Date Range", [df['Date'].min(), df['Date'].max()])
+    start, end = st.date_input("📅 Date Range",
+                              [df['Date'].min(), df['Date'].max()])
     df = df[(df['Date'] >= pd.to_datetime(start)) & (df['Date'] <= pd.to_datetime(end))]
 
     st.subheader("📊 Daily Plan vs Actual")
@@ -125,6 +131,7 @@ elif page == "Daily_Clearing":
 
     df['Month'] = df['Date'].dt.to_period('M').astype(str)
     monthly = df.groupby('Month')[['Plan','Actual']].sum().reset_index()
+
     st.subheader("📈 Monthly Trend")
     st.plotly_chart(stacked_chart(monthly, "Month", "Plan", "Actual", "Monthly"))
 
@@ -138,22 +145,19 @@ elif page == "Daily_Clearing":
     st.plotly_chart(fig)
 
 # ============================================
-# 📊 ISSUE PAGES (TOP 10 ISSUES)
+# 📊 ISSUE PAGES (Top 10 issues)
 # ============================================
 elif page != "Major_Issues":
-
     df = load_sheet(page)
-
-    # Filter by top 10 issues
-    df = df.sort_values("Count", ascending=False).head(10)
 
     issues = df["Issue Type"].unique().tolist()
     selected = st.multiselect("🔍 Select Issues", issues)
+
     if selected:
         df = df[df["Issue Type"].isin(selected)]
 
     st.metric("Total Issues", int(df["Count"].sum()))
-    st.plotly_chart(bar_chart(df, "Issue Type", "Count", f"Top 10 Issues - {page}"))
+    st.plotly_chart(bar_chart(df, "Issue Type", "Count", page))
 
     st.subheader("📊 Pareto Analysis")
     pareto = df.groupby("Issue Type")["Count"].sum().reset_index()
@@ -162,7 +166,8 @@ elif page != "Major_Issues":
 
     figp = go.Figure()
     figp.add_trace(go.Bar(x=pareto["Issue Type"], y=pareto["Count"]))
-    figp.add_trace(go.Scatter(x=pareto["Issue Type"], y=pareto["Cum%"], yaxis='y2'))
+    figp.add_trace(go.Scatter(x=pareto["Issue Type"], y=pareto["Cum%"],
+                             yaxis='y2'))
     figp.update_layout(yaxis2=dict(overlaying='y', side='right'))
     st.plotly_chart(figp)
 
