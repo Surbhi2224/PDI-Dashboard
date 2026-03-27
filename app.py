@@ -1,74 +1,82 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
+import gspread
+from google.oauth2.service_account import Credentials
 import plotly.graph_objects as go
 import plotly.io as pio
+import numpy as np
 from streamlit_autorefresh import st_autorefresh
-
-# Optional: gspread & Google auth (wrapped in try/except for fallback)
-try:
-    import gspread
-    from google.oauth2.service_account import Credentials
-    gsheet_available = True
-except ImportError:
-    gsheet_available = False
 
 # ===== CONFIG =====
 pio.defaults.template = "plotly_dark"
 st.set_page_config(layout="wide", page_title="PDI Dashboard")
 
-# AUTO REFRESH
+# AUTO REFRESH EVERY 5 SECONDS
 st_autorefresh(interval=5000, key="refresh")
 
 # ===== HEADER =====
-col1, col2 = st.columns([1, 5])
+col1, col2 = st.columns([1,5])
 with col1:
+    # Use a placeholder image if logo missing
     try:
         st.image("logo.jpg", width=120)
-    except Exception:
-        st.text("Logo not found")
+    except:
+        st.write("Logo missing")
 with col2:
     st.title("PDI Production Dashboard")
     st.caption("Real-time Monitoring System")
 
+# ===== GOOGLE SHEETS CONFIG =====
+SCOPE = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
+
+def get_gsheet_client():
+    try:
+        creds = Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"],
+            scopes=SCOPE
+        )
+        client = gspread.authorize(creds)
+        return client
+    except Exception as e:
+        st.warning(f"Google Sheets load failed: {e}. Using mock data.")
+        return None
+
+client = get_gsheet_client()
+
 # ===== LOAD FUNCTION =====
+@st.cache_data
 def load_sheet(name):
-    """
-    Loads Google Sheet if available; otherwise returns mock data.
-    """
-    if gsheet_available:
+    if client:
         try:
-            creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"])
-            client = gspread.authorize(creds)
             df = pd.DataFrame(client.open("PDI_Dashboard").worksheet(name).get_all_records())
-            # Fix numeric columns
-            for col in ["Plan", "Actual", "Pending", "Count"]:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-            if "Model" in df.columns:
-                df["Model"] = df["Model"].astype(str).str.strip()
-            return df
         except Exception as e:
-            st.warning(f"Google Sheets load failed: {e}. Using mock data.")
-    
-    # Fallback/mock data
-    if name == "Daily_Clearing":
-        df = pd.DataFrame({
-            "Date": pd.date_range(start="2026-01-01", periods=10),
-            "Plan": np.random.randint(50, 150, size=10),
-            "Actual": np.random.randint(40, 160, size=10),
-            "Model": ["A", "B"]*5
-        })
-    elif name == "Model_Summary":
-        df = pd.DataFrame({
-            "Model": ["A", "B", "C"],
-            "Requirement": [100, 120, 90]
-        })
-    else:  # For issue pages
-        df = pd.DataFrame({
-            "Issue Type": ["Issue1", "Issue2", "Issue3"],
-            "Count": [10, 50, 5]
-        })
+            st.warning(f"Failed to load sheet '{name}': {e}. Using mock data.")
+            df = pd.DataFrame()
+    else:
+        df = pd.DataFrame()  # empty, fallback mock
+    # Mock data if df is empty
+    if df.empty:
+        if name == "Daily_Clearing":
+            df = pd.DataFrame({
+                "Date": pd.date_range(start="2026-03-01", periods=5),
+                "Model": ["A","B","C","D","E"],
+                "Plan": [10,15,20,10,5],
+                "Actual": [9,12,18,10,4],
+                "Pending": [1,3,2,0,1],
+                "Count": [1,2,3,4,5]
+            })
+        else:
+            df = pd.DataFrame({
+                "Issue Type": ["Brake","Door","Window","Seat"],
+                "Count": [10,5,7,3]
+            })
+    # Fix numeric columns
+    for col in ["Plan","Actual","Pending","Count"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
     return df
 
 # ===== SIDEBAR =====
@@ -100,37 +108,27 @@ def bar_chart(df, x, y, title):
     fig.update_layout(title=title)
     return fig
 
-def bar_chart_horizontal_log(df, x, y, title):
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        y=df[x],
-        x=df[y],
-        orientation='h',
-        text=df[y],
-        textposition='outside'
-    ))
-    fig.update_layout(
-        title=title,
-        xaxis_type='log',
-        margin=dict(l=300, r=50, t=50, b=50),
-        height=max(600, len(df)*20)
-    )
-    return fig
-
 # ============================================
 # EXECUTIVE SUMMARY
 # ============================================
 if page == "Executive_Summary":
+
     df = load_sheet("Daily_Clearing")
     model_df = load_sheet("Model_Summary")
-    df['Date'] = pd.to_datetime(df['Date'])
 
-    models = df["Model"].unique().tolist()
+    if "Date" in df.columns:
+        df['Date'] = pd.to_datetime(df['Date'])
+    else:
+        df['Date'] = pd.date_range(start="2026-03-01", periods=len(df))
+
+    models = df.get("Model", ["A","B","C"]).unique().tolist()
     model = st.selectbox("🚗 Select Model", ["All"] + models)
-    if model != "All":
+
+    if model != "All" and "Model" in df.columns:
         df = df[df["Model"] == model]
 
-    start, end = st.date_input("📅 Date Range", [df['Date'].min(), df['Date'].max()])
+    start, end = st.date_input("📅 Date Range",
+                              [df['Date'].min(), df['Date'].max()])
     df = df[(df['Date'] >= pd.to_datetime(start)) & (df['Date'] <= pd.to_datetime(end))]
 
     total_plan = df["Plan"].sum()
@@ -143,24 +141,32 @@ if page == "Executive_Summary":
     col3.metric("Efficiency %", f"{efficiency:.2f}%")
 
     st.subheader("🚗 Model Requirement")
-    st.plotly_chart(bar_chart(model_df, "Model", "Requirement", "Model Requirement"))
+    st.plotly_chart(bar_chart(model_df if not model_df.empty else pd.DataFrame({
+        "Model":["A","B","C"], "Requirement":[50,40,30]
+    }), "Model", "Requirement", "Model Requirement"))
 
-    st.subheader("📈 Performance")
+    st.subheader("📈 Daily Performance")
     st.plotly_chart(column_chart(df, "Date", "Plan", "Actual", "Daily Performance"))
 
 # ============================================
 # DAILY CLEARING
 # ============================================
 elif page == "Daily_Clearing":
-    df = load_sheet("Daily_Clearing")
-    df['Date'] = pd.to_datetime(df['Date'])
 
-    models = df["Model"].unique().tolist()
+    df = load_sheet("Daily_Clearing")
+    if "Date" in df.columns:
+        df['Date'] = pd.to_datetime(df['Date'])
+    else:
+        df['Date'] = pd.date_range(start="2026-03-01", periods=len(df))
+
+    models = df.get("Model", ["A","B","C"]).unique().tolist()
     model = st.selectbox("🚗 Select Model", ["All"] + models)
-    if model != "All":
+
+    if model != "All" and "Model" in df.columns:
         df = df[df["Model"] == model]
 
-    start, end = st.date_input("📅 Date Range", [df['Date'].min(), df['Date'].max()])
+    start, end = st.date_input("📅 Date Range",
+                              [df['Date'].min(), df['Date'].max()])
     df = df[(df['Date'] >= pd.to_datetime(start)) & (df['Date'] <= pd.to_datetime(end))]
 
     st.subheader("📊 Daily Plan vs Actual")
@@ -168,6 +174,7 @@ elif page == "Daily_Clearing":
 
     df['Month'] = df['Date'].dt.to_period('M').astype(str)
     monthly = df.groupby('Month')[['Plan','Actual']].sum().reset_index()
+
     st.subheader("📈 Monthly Trend")
     st.plotly_chart(stacked_chart(monthly, "Month", "Plan", "Actual", "Monthly"))
 
@@ -184,15 +191,16 @@ elif page == "Daily_Clearing":
 # ISSUE PAGES
 # ============================================
 elif page != "Major_Issues":
+
     df = load_sheet(page)
-    issues = df["Issue Type"].unique().tolist()
+    issues = df.get("Issue Type", ["Issue1","Issue2"]).unique().tolist()
     selected = st.multiselect("🔍 Select Issues", issues)
+
     if selected:
         df = df[df["Issue Type"].isin(selected)]
 
-    st.metric("Total Issues", int(df["Count"].sum()))
-    st.subheader("📊 All Issues Count")
-    st.plotly_chart(bar_chart_horizontal_log(df, "Issue Type", "Count", page))
+    st.metric("Total Issues", int(df.get("Count", pd.Series([0])).sum()))
+    st.plotly_chart(bar_chart(df, "Issue Type", "Count", page))
 
     st.subheader("📊 Pareto Analysis")
     pareto = df.groupby("Issue Type")["Count"].sum().reset_index()
@@ -200,27 +208,9 @@ elif page != "Major_Issues":
     pareto["Cum%"] = pareto["Count"].cumsum()/pareto["Count"].sum()*100
 
     figp = go.Figure()
-    figp.add_trace(go.Bar(
-        y=pareto["Issue Type"], 
-        x=pareto["Count"], 
-        orientation='h',
-        name='Count'
-    ))
-    figp.add_trace(go.Scatter(
-        y=pareto["Issue Type"], 
-        x=pareto["Cum%"], 
-        name='Cumulative %',
-        xaxis='x2', 
-        mode='lines+markers'
-    ))
-
-    figp.update_layout(
-        title="Pareto Chart",
-        xaxis=dict(title='Count', type='log'),
-        xaxis2=dict(title='Cumulative %', overlaying='x', side='top', range=[0,100]),
-        margin=dict(l=300, r=50, t=50, b=50),
-        height=max(600, len(pareto)*20)
-    )
+    figp.add_trace(go.Bar(x=pareto["Issue Type"], y=pareto["Count"]))
+    figp.add_trace(go.Scatter(x=pareto["Issue Type"], y=pareto["Cum%"], yaxis='y2'))
+    figp.update_layout(yaxis2=dict(overlaying='y', side='right'))
     st.plotly_chart(figp)
 
 # ============================================
