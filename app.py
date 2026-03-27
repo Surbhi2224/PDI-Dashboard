@@ -1,11 +1,17 @@
 import streamlit as st
 import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
+import numpy as np
 import plotly.graph_objects as go
 import plotly.io as pio
-import numpy as np
 from streamlit_autorefresh import st_autorefresh
+
+# Optional: gspread & Google auth (wrapped in try/except for fallback)
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+    gsheet_available = True
+except ImportError:
+    gsheet_available = False
 
 # ===== CONFIG =====
 pio.defaults.template = "plotly_dark"
@@ -15,32 +21,54 @@ st.set_page_config(layout="wide", page_title="PDI Dashboard")
 st_autorefresh(interval=5000, key="refresh")
 
 # ===== HEADER =====
-col1, col2 = st.columns([1,5])
+col1, col2 = st.columns([1, 5])
 with col1:
     try:
         st.image("logo.jpg", width=120)
     except Exception:
-        st.text("Logo not found")  # avoids crash if image missing
+        st.text("Logo not found")
 with col2:
     st.title("PDI Production Dashboard")
     st.caption("Real-time Monitoring System")
 
-# ===== GOOGLE SHEETS =====
-creds = Credentials.from_service_account_info(
-    st.secrets["gcp_service_account"]
-)
-client = gspread.authorize(creds)
-
 # ===== LOAD FUNCTION =====
-@st.cache_data
 def load_sheet(name):
-    df = pd.DataFrame(client.open("PDI_Dashboard").worksheet(name).get_all_records())
-    if "Model" in df.columns:
-        df["Model"] = df["Model"].astype(str).str.strip()
-    # Fix numeric columns
-    for col in ["Plan", "Actual", "Pending", "Count"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+    """
+    Loads Google Sheet if available; otherwise returns mock data.
+    """
+    if gsheet_available:
+        try:
+            creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"])
+            client = gspread.authorize(creds)
+            df = pd.DataFrame(client.open("PDI_Dashboard").worksheet(name).get_all_records())
+            # Fix numeric columns
+            for col in ["Plan", "Actual", "Pending", "Count"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            if "Model" in df.columns:
+                df["Model"] = df["Model"].astype(str).str.strip()
+            return df
+        except Exception as e:
+            st.warning(f"Google Sheets load failed: {e}. Using mock data.")
+    
+    # Fallback/mock data
+    if name == "Daily_Clearing":
+        df = pd.DataFrame({
+            "Date": pd.date_range(start="2026-01-01", periods=10),
+            "Plan": np.random.randint(50, 150, size=10),
+            "Actual": np.random.randint(40, 160, size=10),
+            "Model": ["A", "B"]*5
+        })
+    elif name == "Model_Summary":
+        df = pd.DataFrame({
+            "Model": ["A", "B", "C"],
+            "Requirement": [100, 120, 90]
+        })
+    else:  # For issue pages
+        df = pd.DataFrame({
+            "Issue Type": ["Issue1", "Issue2", "Issue3"],
+            "Count": [10, 50, 5]
+        })
     return df
 
 # ===== SIDEBAR =====
@@ -90,7 +118,7 @@ def bar_chart_horizontal_log(df, x, y, title):
     return fig
 
 # ============================================
-# 📊 EXECUTIVE SUMMARY
+# EXECUTIVE SUMMARY
 # ============================================
 if page == "Executive_Summary":
     df = load_sheet("Daily_Clearing")
@@ -102,8 +130,7 @@ if page == "Executive_Summary":
     if model != "All":
         df = df[df["Model"] == model]
 
-    start, end = st.date_input("📅 Date Range",
-                              [df['Date'].min(), df['Date'].max()])
+    start, end = st.date_input("📅 Date Range", [df['Date'].min(), df['Date'].max()])
     df = df[(df['Date'] >= pd.to_datetime(start)) & (df['Date'] <= pd.to_datetime(end))]
 
     total_plan = df["Plan"].sum()
@@ -122,7 +149,7 @@ if page == "Executive_Summary":
     st.plotly_chart(column_chart(df, "Date", "Plan", "Actual", "Daily Performance"))
 
 # ============================================
-# 📅 DAILY CLEARING
+# DAILY CLEARING
 # ============================================
 elif page == "Daily_Clearing":
     df = load_sheet("Daily_Clearing")
@@ -133,8 +160,7 @@ elif page == "Daily_Clearing":
     if model != "All":
         df = df[df["Model"] == model]
 
-    start, end = st.date_input("📅 Date Range",
-                              [df['Date'].min(), df['Date'].max()])
+    start, end = st.date_input("📅 Date Range", [df['Date'].min(), df['Date'].max()])
     df = df[(df['Date'] >= pd.to_datetime(start)) & (df['Date'] <= pd.to_datetime(end))]
 
     st.subheader("📊 Daily Plan vs Actual")
@@ -142,7 +168,6 @@ elif page == "Daily_Clearing":
 
     df['Month'] = df['Date'].dt.to_period('M').astype(str)
     monthly = df.groupby('Month')[['Plan','Actual']].sum().reset_index()
-
     st.subheader("📈 Monthly Trend")
     st.plotly_chart(stacked_chart(monthly, "Month", "Plan", "Actual", "Monthly"))
 
@@ -156,18 +181,16 @@ elif page == "Daily_Clearing":
     st.plotly_chart(fig)
 
 # ============================================
-# 📊 ISSUE PAGES (NO MODEL, NO DATE)
+# ISSUE PAGES
 # ============================================
 elif page != "Major_Issues":
     df = load_sheet(page)
-
     issues = df["Issue Type"].unique().tolist()
     selected = st.multiselect("🔍 Select Issues", issues)
     if selected:
         df = df[df["Issue Type"].isin(selected)]
 
     st.metric("Total Issues", int(df["Count"].sum()))
-
     st.subheader("📊 All Issues Count")
     st.plotly_chart(bar_chart_horizontal_log(df, "Issue Type", "Count", page))
 
@@ -193,7 +216,7 @@ elif page != "Major_Issues":
 
     figp.update_layout(
         title="Pareto Chart",
-        xaxis=dict(title='Count', type='log'),  # log scale
+        xaxis=dict(title='Count', type='log'),
         xaxis2=dict(title='Cumulative %', overlaying='x', side='top', range=[0,100]),
         margin=dict(l=300, r=50, t=50, b=50),
         height=max(600, len(pareto)*20)
@@ -201,7 +224,7 @@ elif page != "Major_Issues":
     st.plotly_chart(figp)
 
 # ============================================
-# 📋 MAJOR ISSUES
+# MAJOR ISSUES
 # ============================================
 elif page == "Major_Issues":
     st.info("📄 Please check detailed data in Google Sheets")
