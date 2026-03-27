@@ -2,223 +2,98 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-import plotly.graph_objects as go
-import plotly.io as pio
-import numpy as np
-from streamlit_autorefresh import st_autorefresh
+import altair as alt
 
-# ===== CONFIG =====
-pio.defaults.template = "plotly_dark"
-st.set_page_config(layout="wide", page_title="PDI Dashboard")
-
-# AUTO REFRESH EVERY 5 SECONDS
-st_autorefresh(interval=5000, key="refresh")
-
-# ===== HEADER =====
-col1, col2 = st.columns([1,5])
-with col1:
-    # Use a placeholder image if logo missing
-    try:
-        st.image("logo.jpg", width=120)
-    except:
-        st.write("Logo missing")
-with col2:
-    st.title("PDI Production Dashboard")
-    st.caption("Real-time Monitoring System")
-
-# ===== GOOGLE SHEETS CONFIG =====
-SCOPE = [
+# -----------------------------
+# Google Sheets Credentials
+# -----------------------------
+scope = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
-def get_gsheet_client():
+creds = Credentials.from_service_account_file("service_account.json", scopes=scope)
+client = gspread.authorize(creds)
+
+# -----------------------------
+# Load sheet function
+# -----------------------------
+@st.cache_data(ttl=60)  # refresh cache every 60s
+def load_issue_sheet(sheet_name):
     try:
-        creds = Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"],
-            scopes=SCOPE
-        )
-        client = gspread.authorize(creds)
-        return client
-    except Exception as e:
-        st.warning(f"Google Sheets load failed: {e}. Using mock data.")
-        return None
+        sheet = client.open("PDI_Dashboard").worksheet(sheet_name)
+        raw_data = sheet.get_all_values()
 
-client = get_gsheet_client()
+        if len(raw_data) < 2:
+            st.warning(f"Sheet '{sheet_name}' has no data!")
+            return pd.DataFrame(columns=["Issue Type", "Count"])
 
-# ===== LOAD FUNCTION =====
-@st.cache_data
-def load_sheet(name):
-    if client:
-        try:
-            df = pd.DataFrame(client.open("PDI_Dashboard").worksheet(name).get_all_records())
-        except Exception as e:
-            st.warning(f"Failed to load sheet '{name}': {e}. Using mock data.")
-            df = pd.DataFrame()
-    else:
-        df = pd.DataFrame()  # empty, fallback mock
-    # Mock data if df is empty
-    if df.empty:
-        if name == "Daily_Clearing":
-            df = pd.DataFrame({
-                "Date": pd.date_range(start="2026-03-01", periods=5),
-                "Model": ["A","B","C","D","E"],
-                "Plan": [10,15,20,10,5],
-                "Actual": [9,12,18,10,4],
-                "Pending": [1,3,2,0,1],
-                "Count": [1,2,3,4,5]
-            })
+        # Fix headers
+        headers = raw_data[0]
+        headers = [f"Column_{i}" if not h.strip() else h for i, h in enumerate(headers)]
+        seen = {}
+        for i, h in enumerate(headers):
+            if h in seen:
+                headers[i] = f"{h}_{seen[h]+1}"
+                seen[h] += 1
+            else:
+                seen[h] = 0
+
+        # Create DataFrame
+        df = pd.DataFrame(raw_data[1:], columns=headers)
+
+        # Identify Issue Type and Count columns
+        issue_col = [c for c in df.columns if "Issue" in c or "Type" in c]
+        count_col = [c for c in df.columns if "Count" in c]
+        if not issue_col or not count_col:
+            st.error(f"Sheet '{sheet_name}' does not have proper columns.")
+            return pd.DataFrame(columns=["Issue Type", "Count"])
+
+        df = df[[issue_col[0], count_col[0]]]
+        df.columns = ["Issue Type", "Count"]
+
+        # Convert Count to numeric
+        df["Count"] = pd.to_numeric(df["Count"], errors="coerce").fillna(0).astype(int)
+
+        # Special handling: move SQA issues containing "Paint" to Paint sheet
+        if sheet_name == "SQA":
+            paint_mask = df["Issue Type"].str.contains("Paint", case=False, na=False)
+            df.loc[paint_mask, "Sheet"] = "Paint"
         else:
-            df = pd.DataFrame({
-                "Issue Type": ["Brake","Door","Window","Seat"],
-                "Count": [10,5,7,3]
-            })
-    # Fix numeric columns
-    for col in ["Plan","Actual","Pending","Count"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-    return df
+            df["Sheet"] = sheet_name
 
-# ===== SIDEBAR =====
-pages = [
-    "Executive_Summary","Daily_Clearing","Electrical_Issues",
-    "Process_Issues","SQA_Issues","Paint_Issues",
-    "Design_Issue","Testing_Issue","Water_Ingress","Major_Issues"
-]
-page = st.sidebar.radio("📂 Navigation", pages)
+        # Sort descending by Count and take top 10
+        df_top10 = df.sort_values(by="Count", ascending=False).head(10).reset_index(drop=True)
+        return df_top10
 
-# ===== CHART FUNCTIONS =====
-def column_chart(df, x, y1, y2, title):
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=df[x], y=df[y1], name="Plan"))
-    fig.add_trace(go.Bar(x=df[x], y=df[y2], name="Actual"))
-    fig.update_layout(title=title, barmode='group')
-    return fig
+    except Exception as e:
+        st.error(f"Failed to load sheet '{sheet_name}': {e}")
+        return pd.DataFrame(columns=["Issue Type", "Count"])
 
-def stacked_chart(df, x, y1, y2, title):
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=df[x], y=df[y1], name="Plan"))
-    fig.add_trace(go.Bar(x=df[x], y=df[y2], name="Actual"))
-    fig.update_layout(title=title, barmode='stack')
-    return fig
+# -----------------------------
+# Streamlit UI
+# -----------------------------
+st.title("PDI Dashboard - Top 10 Issues")
 
-def bar_chart(df, x, y, title):
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=df[x], y=df[y], text=df[y], textposition='outside'))
-    fig.update_layout(title=title)
-    return fig
+sheet_option = st.selectbox(
+    "Select Issue Sheet",
+    ["Testing_Issue", "SQA", "Paint Rundown", "DENT", "SCRATCH", "Other"]
+)
 
-# ============================================
-# EXECUTIVE SUMMARY
-# ============================================
-if page == "Executive_Summary":
+# Load the selected sheet
+df = load_issue_sheet(sheet_option)
 
-    df = load_sheet("Daily_Clearing")
-    model_df = load_sheet("Model_Summary")
+if df.empty:
+    st.warning("No data to display.")
+else:
+    st.subheader(f"Top 10 issues from {sheet_option}")
+    st.dataframe(df[["Issue Type", "Count"]])
 
-    if "Date" in df.columns:
-        df['Date'] = pd.to_datetime(df['Date'])
-    else:
-        df['Date'] = pd.date_range(start="2026-03-01", periods=len(df))
+    # Plot bar chart
+    chart = alt.Chart(df).mark_bar().encode(
+        x=alt.X('Count:Q', title='Count'),
+        y=alt.Y('Issue Type:N', sort='-x', title='Issue Type'),
+        tooltip=['Issue Type', 'Count']
+    ).properties(height=400, width=700)
 
-    models = df.get("Model", ["A","B","C"]).unique().tolist()
-    model = st.selectbox("🚗 Select Model", ["All"] + models)
-
-    if model != "All" and "Model" in df.columns:
-        df = df[df["Model"] == model]
-
-    start, end = st.date_input("📅 Date Range",
-                              [df['Date'].min(), df['Date'].max()])
-    df = df[(df['Date'] >= pd.to_datetime(start)) & (df['Date'] <= pd.to_datetime(end))]
-
-    total_plan = df["Plan"].sum()
-    total_actual = df["Actual"].sum()
-    efficiency = (total_actual / total_plan * 100) if total_plan > 0 else 0
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Offered", int(total_plan))
-    col2.metric("Total Cleared", int(total_actual))
-    col3.metric("Efficiency %", f"{efficiency:.2f}%")
-
-    st.subheader("🚗 Model Requirement")
-    st.plotly_chart(bar_chart(model_df if not model_df.empty else pd.DataFrame({
-        "Model":["A","B","C"], "Requirement":[50,40,30]
-    }), "Model", "Requirement", "Model Requirement"))
-
-    st.subheader("📈 Daily Performance")
-    st.plotly_chart(column_chart(df, "Date", "Plan", "Actual", "Daily Performance"))
-
-# ============================================
-# DAILY CLEARING
-# ============================================
-elif page == "Daily_Clearing":
-
-    df = load_sheet("Daily_Clearing")
-    if "Date" in df.columns:
-        df['Date'] = pd.to_datetime(df['Date'])
-    else:
-        df['Date'] = pd.date_range(start="2026-03-01", periods=len(df))
-
-    models = df.get("Model", ["A","B","C"]).unique().tolist()
-    model = st.selectbox("🚗 Select Model", ["All"] + models)
-
-    if model != "All" and "Model" in df.columns:
-        df = df[df["Model"] == model]
-
-    start, end = st.date_input("📅 Date Range",
-                              [df['Date'].min(), df['Date'].max()])
-    df = df[(df['Date'] >= pd.to_datetime(start)) & (df['Date'] <= pd.to_datetime(end))]
-
-    st.subheader("📊 Daily Plan vs Actual")
-    st.plotly_chart(column_chart(df, "Date", "Plan", "Actual", "Daily"))
-
-    df['Month'] = df['Date'].dt.to_period('M').astype(str)
-    monthly = df.groupby('Month')[['Plan','Actual']].sum().reset_index()
-
-    st.subheader("📈 Monthly Trend")
-    st.plotly_chart(stacked_chart(monthly, "Month", "Plan", "Actual", "Monthly"))
-
-    st.subheader("🔮 Forecast")
-    df = df.sort_values('Date')
-    df['Trend'] = np.poly1d(np.polyfit(range(len(df)), df['Actual'], 1))(range(len(df)))
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df['Date'], y=df['Actual'], name="Actual"))
-    fig.add_trace(go.Scatter(x=df['Date'], y=df['Trend'], name="Trend"))
-    st.plotly_chart(fig)
-
-# ============================================
-# ISSUE PAGES
-# ============================================
-elif page != "Major_Issues":
-
-    df = load_sheet(page)
-    issues = df.get("Issue Type", ["Issue1","Issue2"]).unique().tolist()
-    selected = st.multiselect("🔍 Select Issues", issues)
-
-    if selected:
-        df = df[df["Issue Type"].isin(selected)]
-
-    st.metric("Total Issues", int(df.get("Count", pd.Series([0])).sum()))
-    st.plotly_chart(bar_chart(df, "Issue Type", "Count", page))
-
-    st.subheader("📊 Pareto Analysis")
-    pareto = df.groupby("Issue Type")["Count"].sum().reset_index()
-    pareto = pareto.sort_values(by="Count", ascending=False)
-    pareto["Cum%"] = pareto["Count"].cumsum()/pareto["Count"].sum()*100
-
-    figp = go.Figure()
-    figp.add_trace(go.Bar(x=pareto["Issue Type"], y=pareto["Count"]))
-    figp.add_trace(go.Scatter(x=pareto["Issue Type"], y=pareto["Cum%"], yaxis='y2'))
-    figp.update_layout(yaxis2=dict(overlaying='y', side='right'))
-    st.plotly_chart(figp)
-
-# ============================================
-# MAJOR ISSUES
-# ============================================
-elif page == "Major_Issues":
-    st.info("📄 Please check detailed data in Google Sheets")
-
-# ===== FOOTER =====
-st.markdown("---")
-st.caption("Developed by Surbhi | PDI Dashboard")
+    st.altair_chart(chart, use_container_width=True)
