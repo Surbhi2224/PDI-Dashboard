@@ -58,15 +58,19 @@ if page == "Executive_Summary":
 
     df = load_sheet("Daily_Clearing")
 
+    df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
+
     st.subheader("Executive Summary")
 
-    st.markdown(f"### Offered: {int(df['Plan'].sum())}")
-    st.markdown(f"### Cleared: {int(df['Actual'].sum())}")
-    st.markdown(f"### Pending: {int(df['Pending'].sum())}")
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric("Offered", int(df_grouped["Plan"].sum()))
+    col2.metric("Cleared", int(df_grouped["Actual"].sum()))
+    col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
     fig = go.Figure()
-    fig.add_bar(x=df["Date"], y=df["Plan"], name="Offered", marker_color="blue")
-    fig.add_bar(x=df["Date"], y=df["Pending"], name="Pending", marker_color="orange")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Offered", marker_color="blue")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending", marker_color="orange")
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -84,20 +88,25 @@ elif page == "Daily_Clearing":
     models = ["All"] + sorted(df["Model"].unique())
     selected_model = st.selectbox("Select Model", models)
 
+    # ===== FILTER =====
     if selected_model != "All":
-        df = df[df["Model"] == selected_model]
+        df_filtered = df[df["Model"] == selected_model]
+    else:
+        df_filtered = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
 
-    # ===== TOP NUMBERS =====
-    st.markdown(f"### Offered: {int(df['Plan'].sum())}")
-    st.markdown(f"### Cleared: {int(df['Actual'].sum())}")
-    st.markdown(f"### Pending: {int(df['Pending'].sum())}")
+    # ===== KPI CARDS =====
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric("Offered", int(df_filtered["Plan"].sum()))
+    col2.metric("Cleared", int(df_filtered["Actual"].sum()))
+    col3.metric("Pending", int(df_filtered["Pending"].sum()))
 
     # ===== MODEL-WISE COLOR CHART =====
     st.subheader("Model-wise Performance")
 
     fig = go.Figure()
 
-    models = df["Model"].unique()
+    models = df["Model"].unique() if selected_model == "All" else [selected_model]
 
     colors = [
         "#1f77b4", "#ff7f0e", "#2ca02c",
@@ -121,14 +130,14 @@ elif page == "Daily_Clearing":
     # ===== FORECAST =====
     st.subheader("Forecast")
 
-    df = df.sort_values("Date")
+    df_sorted = df_filtered.sort_values("Date")
 
-    if len(df) > 2:
-        trend = np.poly1d(np.polyfit(range(len(df)), df["Actual"], 1))
+    if len(df_sorted) > 2:
+        trend = np.poly1d(np.polyfit(range(len(df_sorted)), df_sorted["Actual"], 1))
 
         fig2 = go.Figure()
-        fig2.add_scatter(x=df["Date"], y=df["Actual"], name="Actual")
-        fig2.add_scatter(x=df["Date"], y=trend(range(len(df))), name="Trend")
+        fig2.add_scatter(x=df_sorted["Date"], y=df_sorted["Actual"], name="Actual")
+        fig2.add_scatter(x=df_sorted["Date"], y=trend(range(len(df_sorted))), name="Trend")
 
         st.plotly_chart(fig2, use_container_width=True)
 
@@ -142,7 +151,7 @@ elif page != "Major_Issues":
 
     st.subheader(page.replace("_", " "))
 
-    # ===== CLEAN DROPDOWN =====
+    # ===== DROPDOWN =====
     issues = df["Issue Type"].dropna().unique().tolist()
     selected = st.selectbox("Select Issue", ["All"] + issues)
 
@@ -150,7 +159,7 @@ elif page != "Major_Issues":
         df = df[df["Issue Type"] == selected]
 
     # ===== TOTAL ISSUES =====
-    st.markdown(f"### Total Issues: {int(df['Count'].sum())}")
+    st.metric("Total Issues", int(df["Count"].sum()))
 
     # ===== TOP 10 =====
     top10 = df.groupby("Issue Type")["Count"].sum().nlargest(10).reset_index()
@@ -182,9 +191,7 @@ elif page != "Major_Issues":
         name="Cumulative %"
     )
 
-    fig2.update_layout(
-        yaxis2=dict(overlaying="y", side="right")
-    )
+    fig2.update_layout(yaxis2=dict(overlaying="y", side="right"))
 
     st.plotly_chart(fig2, use_container_width=True)
 
