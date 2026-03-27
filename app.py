@@ -17,12 +17,15 @@ st_autorefresh(interval=5000, key="refresh")
 # ===== HEADER =====
 col1, col2 = st.columns([1,5])
 with col1:
-    st.image("logo.jpg", width=120)
+    try:
+        st.image("logo.jpg", width=120)
+    except Exception:
+        st.text("Logo not found")  # avoids crash if image missing
 with col2:
     st.title("PDI Production Dashboard")
     st.caption("Real-time Monitoring System")
 
-# ===== GOOGLE SHEETS (FIXED FOR CLOUD) =====
+# ===== GOOGLE SHEETS =====
 creds = Credentials.from_service_account_info(
     st.secrets["gcp_service_account"]
 )
@@ -32,15 +35,12 @@ client = gspread.authorize(creds)
 @st.cache_data
 def load_sheet(name):
     df = pd.DataFrame(client.open("PDI_Dashboard").worksheet(name).get_all_records())
-
     if "Model" in df.columns:
         df["Model"] = df["Model"].astype(str).str.strip()
-
     # Fix numeric columns
     for col in ["Plan", "Actual", "Pending", "Count"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-
     return df
 
 # ===== SIDEBAR =====
@@ -72,19 +72,33 @@ def bar_chart(df, x, y, title):
     fig.update_layout(title=title)
     return fig
 
+def bar_chart_horizontal_log(df, x, y, title):
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=df[x],
+        x=df[y],
+        orientation='h',
+        text=df[y],
+        textposition='outside'
+    ))
+    fig.update_layout(
+        title=title,
+        xaxis_type='log',
+        margin=dict(l=300, r=50, t=50, b=50),
+        height=max(600, len(df)*20)
+    )
+    return fig
+
 # ============================================
 # 📊 EXECUTIVE SUMMARY
 # ============================================
 if page == "Executive_Summary":
-
     df = load_sheet("Daily_Clearing")
     model_df = load_sheet("Model_Summary")
-
     df['Date'] = pd.to_datetime(df['Date'])
 
     models = df["Model"].unique().tolist()
     model = st.selectbox("🚗 Select Model", ["All"] + models)
-
     if model != "All":
         df = df[df["Model"] == model]
 
@@ -111,13 +125,11 @@ if page == "Executive_Summary":
 # 📅 DAILY CLEARING
 # ============================================
 elif page == "Daily_Clearing":
-
     df = load_sheet("Daily_Clearing")
     df['Date'] = pd.to_datetime(df['Date'])
 
     models = df["Model"].unique().tolist()
     model = st.selectbox("🚗 Select Model", ["All"] + models)
-
     if model != "All":
         df = df[df["Model"] == model]
 
@@ -147,40 +159,18 @@ elif page == "Daily_Clearing":
 # 📊 ISSUE PAGES (NO MODEL, NO DATE)
 # ============================================
 elif page != "Major_Issues":
-
     df = load_sheet(page)
 
-    # Only Issue filter
     issues = df["Issue Type"].unique().tolist()
     selected = st.multiselect("🔍 Select Issues", issues)
-
     if selected:
         df = df[df["Issue Type"].isin(selected)]
 
     st.metric("Total Issues", int(df["Count"].sum()))
 
-    # -------- Horizontal Bar Chart with Log Scale --------
-    def bar_chart_horizontal_log(df, x, y, title):
-        fig = go.Figure()
-        fig.add_trace(go.Bar(
-            y=df[x], 
-            x=df[y], 
-            orientation='h', 
-            text=df[y], 
-            textposition='outside'
-        ))
-        fig.update_layout(
-            title=title,
-            xaxis_type='log',   # Log scale
-            margin=dict(l=300, r=50, t=50, b=50),  # left margin for long names
-            height=max(600, len(df)*20)  # dynamic height
-        )
-        return fig
-
     st.subheader("📊 All Issues Count")
     st.plotly_chart(bar_chart_horizontal_log(df, "Issue Type", "Count", page))
 
-    # -------- Pareto Analysis --------
     st.subheader("📊 Pareto Analysis")
     pareto = df.groupby("Issue Type")["Count"].sum().reset_index()
     pareto = pareto.sort_values(by="Count", ascending=False)
@@ -208,7 +198,6 @@ elif page != "Major_Issues":
         margin=dict(l=300, r=50, t=50, b=50),
         height=max(600, len(pareto)*20)
     )
-
     st.plotly_chart(figp)
 
 # ============================================
