@@ -17,29 +17,24 @@ st_autorefresh(interval=5000, key="refresh")
 # ===== HEADER =====
 col1, col2 = st.columns([1,5])
 with col1:
-    st.write("")
+    st.image("logo.jpg", width=120)
 with col2:
     st.title("PDI Production Dashboard")
     st.caption("Real-time Monitoring System")
 
-# ===== GOOGLE AUTH =====
-scope = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
-
+# ===== GOOGLE SHEETS (FIXED FOR CLOUD) =====
 creds = Credentials.from_service_account_info(
-    st.secrets["gcp_service_account"],
-    scopes=scope
+    st.secrets["gcp_service_account"]
 )
-
 client = gspread.authorize(creds)
 
 # ===== LOAD FUNCTION =====
 @st.cache_data
 def load_sheet(name):
-    sheet = client.open("PDI_Dashboard").worksheet(name)
-    df = pd.DataFrame(sheet.get_all_records())
+    df = pd.DataFrame(client.open("PDI_Dashboard").worksheet(name).get_all_records())
+
+    if "Model" in df.columns:
+        df["Model"] = df["Model"].astype(str).str.strip()
 
     # Fix numeric columns
     for col in ["Plan", "Actual", "Pending", "Count"]:
@@ -102,7 +97,6 @@ if page == "Executive_Summary":
     efficiency = (total_actual / total_plan * 100) if total_plan > 0 else 0
 
     col1, col2, col3 = st.columns(3)
-
     col1.metric("Total Offered", int(total_plan))
     col2.metric("Total Cleared", int(total_actual))
     col3.metric("Efficiency %", f"{efficiency:.2f}%")
@@ -156,6 +150,7 @@ elif page != "Major_Issues":
 
     df = load_sheet(page)
 
+    # Only Issue filter
     issues = df["Issue Type"].unique().tolist()
     selected = st.multiselect("🔍 Select Issues", issues)
 
@@ -164,18 +159,55 @@ elif page != "Major_Issues":
 
     st.metric("Total Issues", int(df["Count"].sum()))
 
-    st.plotly_chart(bar_chart(df, "Issue Type", "Count", page))
+    # -------- Horizontal Bar Chart with Log Scale --------
+    def bar_chart_horizontal_log(df, x, y, title):
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            y=df[x], 
+            x=df[y], 
+            orientation='h', 
+            text=df[y], 
+            textposition='outside'
+        ))
+        fig.update_layout(
+            title=title,
+            xaxis_type='log',   # Log scale
+            margin=dict(l=300, r=50, t=50, b=50),  # left margin for long names
+            height=max(600, len(df)*20)  # dynamic height
+        )
+        return fig
 
+    st.subheader("📊 All Issues Count")
+    st.plotly_chart(bar_chart_horizontal_log(df, "Issue Type", "Count", page))
+
+    # -------- Pareto Analysis --------
     st.subheader("📊 Pareto Analysis")
     pareto = df.groupby("Issue Type")["Count"].sum().reset_index()
     pareto = pareto.sort_values(by="Count", ascending=False)
     pareto["Cum%"] = pareto["Count"].cumsum()/pareto["Count"].sum()*100
 
     figp = go.Figure()
-    figp.add_trace(go.Bar(x=pareto["Issue Type"], y=pareto["Count"]))
-    figp.add_trace(go.Scatter(x=pareto["Issue Type"], y=pareto["Cum%"],
-                             yaxis='y2'))
-    figp.update_layout(yaxis2=dict(overlaying='y', side='right'))
+    figp.add_trace(go.Bar(
+        y=pareto["Issue Type"], 
+        x=pareto["Count"], 
+        orientation='h',
+        name='Count'
+    ))
+    figp.add_trace(go.Scatter(
+        y=pareto["Issue Type"], 
+        x=pareto["Cum%"], 
+        name='Cumulative %',
+        xaxis='x2', 
+        mode='lines+markers'
+    ))
+
+    figp.update_layout(
+        title="Pareto Chart",
+        xaxis=dict(title='Count', type='log'),  # log scale
+        xaxis2=dict(title='Cumulative %', overlaying='x', side='top', range=[0,100]),
+        margin=dict(l=300, r=50, t=50, b=50),
+        height=max(600, len(pareto)*20)
+    )
 
     st.plotly_chart(figp)
 
