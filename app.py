@@ -13,7 +13,7 @@ st.caption("Real-time Monitoring System")
 # AUTO REFRESH
 st_autorefresh(interval=5000, key="refresh")
 
-# ===== GOOGLE SHEETS CONNECTION (CLOUD SAFE) =====
+# ===== GOOGLE SHEETS CONNECTION =====
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
@@ -37,7 +37,6 @@ def load_sheet(name):
             st.warning(f"{name} sheet is empty")
             return df
 
-        # Clean columns
         if "Model" in df.columns:
             df["Model"] = df["Model"].astype(str).str.strip()
 
@@ -141,7 +140,7 @@ elif page == "Daily_Clearing":
         st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# 📊 ISSUE PAGES (TOP 10)
+# 📊 ISSUE PAGES (CLEAN + PARETO)
 # ============================================
 elif page != "Major_Issues":
 
@@ -150,27 +149,51 @@ elif page != "Major_Issues":
     if not df.empty:
         st.subheader(f"📊 {page}")
 
+        # TOTAL ISSUES
         total_issues = int(df["Count"].sum())
         st.metric("🚨 Total Issues", total_issues)
 
-        issues = df["Issue Type"].unique().tolist()
-        selected = st.multiselect("Select Issues", issues, default=issues)
+        # CLEAN DROPDOWN
+        issues = sorted(df["Issue Type"].dropna().unique())
+        selected = st.selectbox("🔽 Select Issue Type", ["All"] + issues)
 
-        df = df[df["Issue Type"].isin(selected)]
+        if selected != "All":
+            df = df[df["Issue Type"] == selected]
 
-        top10 = df.groupby("Issue Type")["Count"].sum().reset_index()
-        top10 = top10.sort_values(by="Count", ascending=False).head(10)
+        # PARETO DATA
+        pareto = df.groupby("Issue Type")["Count"].sum().reset_index()
+        pareto = pareto.sort_values(by="Count", ascending=False).head(10)
+        pareto["Cum%"] = pareto["Count"].cumsum() / pareto["Count"].sum() * 100
 
+        # PARETO CHART
         fig = go.Figure()
+
         fig.add_bar(
-            x=top10["Issue Type"],
-            y=top10["Count"],
-            text=top10["Count"],
-            textposition='outside',
+            x=pareto["Issue Type"],
+            y=pareto["Count"],
+            name="Issues",
             marker_color="red"
         )
 
-        fig.update_layout(title="Top 10 Issues")
+        fig.add_scatter(
+            x=pareto["Issue Type"],
+            y=pareto["Cum%"],
+            name="Cumulative %",
+            yaxis="y2",
+            mode="lines+markers"
+        )
+
+        fig.update_layout(
+            title="📊 Pareto Analysis (Top 10 Issues)",
+            yaxis=dict(title="Count"),
+            yaxis2=dict(
+                title="Cumulative %",
+                overlaying="y",
+                side="right",
+                range=[0, 100]
+            )
+        )
+
         st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
