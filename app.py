@@ -113,9 +113,11 @@ elif page == "Daily_Clearing":
     models = sorted(df["Model"].unique())
 
     colors = {
-        "TR": "#4C78A8",
-        "LR": "#F58518",
-        "V1": "#54A24B",
-        "V2": "#E45756",
-        "V3": "#B279A2",
-        "ARMOURED": "#FF
+       colors = {
+    "TR": "#4C78A8",
+    "LR": "#F58518",
+    "V1": "#54A24B",
+    "V2": "#E45756",
+    "V3": "#B279A2",
+    "ARMOURED": "#FF9DA7"
+}
