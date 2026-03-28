@@ -68,8 +68,6 @@ page = st.sidebar.selectbox("Navigation", pages)
 if page == "Executive_Summary":
 
     df = load_sheet("Daily_Clearing")
-    df = df.dropna(subset=["Date"])
-
     df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
 
     st.subheader("Executive Summary")
@@ -80,155 +78,44 @@ if page == "Executive_Summary":
     col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
     fig = go.Figure()
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Plan", marker_color="#1f77b4")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Actual", marker_color="#2ca02c")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending", marker_color="#ff7f0e")
-
-    fig.update_layout(barmode="group")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Cleared")
 
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# 📅 DAILY CLEARING (FINAL FIXED)
+# 📅 DAILY CLEARING (FINAL MODEL-WISE)
 # ============================================
 elif page == "Daily_Clearing":
 
     df = load_sheet("Daily_Clearing")
     df = df.dropna(subset=["Date"])
 
-    st.subheader("Daily Clearing")
+    st.subheader("Daily Clearing (Model-wise)")
 
-    # DROPDOWN
+    # ===== DROPDOWN =====
     models = ["All"] + sorted(df["Model"].unique())
     selected_model = st.selectbox("Select Model", models)
 
     if selected_model != "All":
         df = df[df["Model"] == selected_model]
 
-    df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
-
-    # KPI
+    # ===== KPI =====
     col1, col2, col3 = st.columns(3)
-    col1.metric("Offered", int(df_grouped["Plan"].sum()))
-    col2.metric("Cleared", int(df_grouped["Actual"].sum()))
-    col3.metric("Pending", int(df_grouped["Pending"].sum()))
+    col1.metric("Offered", int(df["Plan"].sum()))
+    col2.metric("Cleared", int(df["Actual"].sum()))
+    col3.metric("Pending", int(df["Pending"].sum()))
 
-    # ✅ FINAL GRAPH (LIKE YOUR SS)
-    st.subheader("Plan vs Actual vs Pending")
-
-    fig = go.Figure()
-
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Plan", marker_color="#1f77b4")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Actual", marker_color="#2ca02c")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending", marker_color="#ff7f0e")
-
-    fig.update_layout(barmode="group")
-
-    st.plotly_chart(fig, use_container_width=True)
-
-    # FORECAST
-    st.subheader("Forecast")
-
-    if len(df_grouped) > 2:
-        trend = np.poly1d(np.polyfit(range(len(df_grouped)), df_grouped["Actual"], 1))
-
-        fig2 = go.Figure()
-        fig2.add_scatter(x=df_grouped["Date"], y=df_grouped["Actual"], name="Actual")
-        fig2.add_scatter(x=df_grouped["Date"], y=trend(range(len(df_grouped))), name="Trend")
-
-        st.plotly_chart(fig2, use_container_width=True)
-
-# ============================================
-# 📊 ISSUE PAGES
-# ============================================
-elif page not in ["Major_Issues", "DPV"]:
-
-    df = load_sheet(page)
-
-    st.subheader(page.replace("_", " "))
-
-    issues = df["Issue Type"].dropna().unique().tolist()
-    selected = st.selectbox("Select Issue", ["All"] + issues)
-
-    if selected != "All":
-        df = df[df["Issue Type"] == selected]
-
-    st.metric("Total Issues", int(df["Count"].sum()))
-
-    # TOP 10
-    top10 = df.groupby("Issue Type")["Count"].sum().nlargest(10).reset_index()
+    # ===== MODEL-WISE GRAPH =====
+    st.subheader("Model-wise Daily Clearing")
 
     fig = go.Figure()
-    fig.add_bar(x=top10["Issue Type"], y=top10["Count"], text=top10["Count"], textposition="outside")
 
-    st.plotly_chart(fig, use_container_width=True)
+    models = sorted(df["Model"].unique())
 
-    # PARETO
-    st.subheader("Pareto Analysis")
-
-    pareto = df.groupby("Issue Type")["Count"].sum().reset_index()
-    pareto = pareto.sort_values(by="Count", ascending=False)
-    pareto["Cum%"] = pareto["Count"].cumsum() / pareto["Count"].sum() * 100
-
-    fig2 = go.Figure()
-    fig2.add_bar(x=pareto["Issue Type"], y=pareto["Count"], name="Count")
-
-    fig2.add_scatter(
-        x=pareto["Issue Type"],
-        y=pareto["Cum%"],
-        yaxis="y2",
-        name="Cumulative %"
-    )
-
-    fig2.update_layout(yaxis2=dict(overlaying="y", side="right"))
-
-    st.plotly_chart(fig2, use_container_width=True)
-
-# ============================================
-# 📈 DPV
-# ============================================
-elif page == "DPV":
-
-    df = load_sheet("DPV")
-
-    st.subheader("DPV Analysis")
-
-    df.columns = df.columns.str.strip()
-
-    if "Month" not in df.columns:
-        st.error("Month column missing")
-        st.stop()
-
-    for col in ["DPV %", "Paint issues %", "Other issues %"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-        else:
-            df[col] = 0
-
-    months = df["Month"].dropna().unique()
-    selected_month = st.selectbox("Select Month", months)
-
-    df_filtered = df[df["Month"] == selected_month]
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("DPV %", float(df_filtered["DPV %"].values[0]))
-    col2.metric("Paint %", float(df_filtered["Paint issues %"].values[0]))
-    col3.metric("Other %", float(df_filtered["Other issues %"].values[0]))
-
-    fig = go.Figure()
-    fig.add_scatter(x=df["Month"], y=df["DPV %"], name="DPV %")
-    fig.add_scatter(x=df["Month"], y=df["Paint issues %"], name="Paint %")
-    fig.add_scatter(x=df["Month"], y=df["Other issues %"], name="Other %")
-
-    st.plotly_chart(fig, use_container_width=True)
-
-# ============================================
-# 📋 MAJOR ISSUES
-# ============================================
-else:
-    st.subheader("Major Issues")
-    st.info("Check Google Sheet")
-
-# FOOTER
-st.markdown("---")
-st.caption("Developed by Surbhi | PDI Dashboard")
+    colors = {
+        "TR": "#4C78A8",
+        "LR": "#F58518",
+        "V1": "#54A24B",
+        "V2": "#E45756",
+        "V3": "#B279A2",
+        "ARMOURED": "#FF
