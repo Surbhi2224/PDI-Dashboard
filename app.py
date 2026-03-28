@@ -63,7 +63,7 @@ pages = [
 page = st.sidebar.selectbox("Navigation", pages)
 
 # ============================================
-# 📊 EXECUTIVE SUMMARY
+# 📊 EXECUTIVE SUMMARY (COLORED FIXED)
 # ============================================
 if page == "Executive_Summary":
 
@@ -80,12 +80,17 @@ if page == "Executive_Summary":
     col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
     fig = go.Figure()
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Cleared")
+
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Plan", marker_color="#4C78A8")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Actual", marker_color="#59A14F")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending", marker_color="#F28E2B")
+
+    fig.update_layout(barmode="group")
 
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# 📅 DAILY CLEARING (FINAL STACKED + CLEAN)
+# 📅 DAILY CLEARING (STACKED + CLEAN)
 # ============================================
 elif page == "Daily_Clearing":
 
@@ -94,20 +99,17 @@ elif page == "Daily_Clearing":
 
     st.subheader("Daily Clearing")
 
-    # ===== DROPDOWN =====
     models_list = ["All"] + sorted(df["Model"].unique())
     selected_model = st.selectbox("Select Model", models_list)
 
     if selected_model != "All":
         df = df[df["Model"] == selected_model]
 
-    # ===== KPI =====
     col1, col2, col3 = st.columns(3)
     col1.metric("Plan", int(df["Plan"].sum()))
     col2.metric("Actual", int(df["Actual"].sum()))
     col3.metric("Pending", int(df["Pending"].sum()))
 
-    # ===== COLORS =====
     colors = {
         "TR": "#4C78A8",
         "LR": "#F58518",
@@ -117,8 +119,7 @@ elif page == "Daily_Clearing":
         "ARMOURED": "#FF9DA7"
     }
 
-    # ===== STACKED MODEL GRAPH =====
-    st.subheader("Model-wise Clearing (Stacked)")
+    st.subheader("Model-wise Clearing")
 
     fig = go.Figure()
 
@@ -132,16 +133,11 @@ elif page == "Daily_Clearing":
             marker_color=colors.get(model, "#999999")
         )
 
-    fig.update_layout(
-        barmode="stack",
-        xaxis_title="Date",
-        yaxis_title="Vehicles",
-        legend_title="Models"
-    )
+    fig.update_layout(barmode="stack")
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # ===== PLAN vs ACTUAL vs PENDING =====
+    # PLAN VS ACTUAL
     st.subheader("Plan vs Actual vs Pending")
 
     df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
@@ -180,7 +176,7 @@ elif page not in ["Major_Issues", "DPV"]:
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # ===== PARETO =====
+    # PARETO
     st.subheader("Pareto Analysis")
 
     pareto = df.groupby("Issue Type")["Count"].sum().reset_index()
@@ -202,15 +198,13 @@ elif page not in ["Major_Issues", "DPV"]:
     st.plotly_chart(fig2, use_container_width=True)
 
 # ============================================
-# 📈 DPV PAGE
+# 📈 DPV
 # ============================================
 elif page == "DPV":
 
     df = load_sheet("DPV")
 
     st.subheader("DPV Analysis")
-
-    df.columns = df.columns.str.strip()
 
     for col in ["DPV %", "Paint issues %", "Other issues %"]:
         if col in df.columns:
@@ -242,6 +236,6 @@ else:
     st.subheader("Major Issues")
     st.info("Check Google Sheet")
 
-# ===== FOOTER =====
+# FOOTER
 st.markdown("---")
 st.caption("Developed by Surbhi | PDI Dashboard")
