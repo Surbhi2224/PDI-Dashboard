@@ -43,6 +43,7 @@ def load_sheet(name):
 
     return df
 
+
 # ===== SIDEBAR =====
 pages = [
     "Executive_Summary",
@@ -79,14 +80,16 @@ if page == "Executive_Summary":
     col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
     fig = go.Figure()
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Offered")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Cleared")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Plan", marker_color="#1f77b4")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Actual", marker_color="#2ca02c")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending", marker_color="#ff7f0e")
+
+    fig.update_layout(barmode="group")
 
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# 📅 DAILY CLEARING
+# 📅 DAILY CLEARING (FINAL FIXED)
 # ============================================
 elif page == "Daily_Clearing":
 
@@ -95,15 +98,14 @@ elif page == "Daily_Clearing":
 
     st.subheader("Daily Clearing")
 
+    # DROPDOWN
     models = ["All"] + sorted(df["Model"].unique())
     selected_model = st.selectbox("Select Model", models)
 
     if selected_model != "All":
-        df_filtered = df[df["Model"] == selected_model]
-    else:
-        df_filtered = df
+        df = df[df["Model"] == selected_model]
 
-    df_grouped = df_filtered.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
+    df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
 
     # KPI
     col1, col2, col3 = st.columns(3)
@@ -111,30 +113,16 @@ elif page == "Daily_Clearing":
     col2.metric("Cleared", int(df_grouped["Actual"].sum()))
     col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
-    # CLEAN MODEL GRAPH
-    st.subheader("Model-wise Clearing")
+    # ✅ FINAL GRAPH (LIKE YOUR SS)
+    st.subheader("Plan vs Actual vs Pending")
 
     fig = go.Figure()
 
-    colors = {
-        "TR": "#1f77b4",
-        "LR": "#ff7f0e",
-        "V1": "#2ca02c",
-        "V2": "#d62728",
-        "V3": "#9467bd",
-        "ARMOURED": "#8c564b"
-    }
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Plan", marker_color="#1f77b4")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Actual", marker_color="#2ca02c")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending", marker_color="#ff7f0e")
 
-    for model in df["Model"].unique():
-        model_df = df[df["Model"] == model]
-
-        fig.add_scatter(
-            x=model_df["Date"],
-            y=model_df["Actual"],
-            mode="lines+markers",
-            name=model,
-            line=dict(color=colors.get(model, "white"))
-        )
+    fig.update_layout(barmode="group")
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -159,10 +147,6 @@ elif page not in ["Major_Issues", "DPV"]:
 
     st.subheader(page.replace("_", " "))
 
-    if "Issue Type" not in df.columns:
-        st.error("❌ 'Issue Type' column missing")
-        st.stop()
-
     issues = df["Issue Type"].dropna().unique().tolist()
     selected = st.selectbox("Select Issue", ["All"] + issues)
 
@@ -175,12 +159,7 @@ elif page not in ["Major_Issues", "DPV"]:
     top10 = df.groupby("Issue Type")["Count"].sum().nlargest(10).reset_index()
 
     fig = go.Figure()
-    fig.add_bar(
-        x=top10["Issue Type"],
-        y=top10["Count"],
-        text=top10["Count"],
-        textposition="outside"
-    )
+    fig.add_bar(x=top10["Issue Type"], y=top10["Count"], text=top10["Count"], textposition="outside")
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -206,7 +185,7 @@ elif page not in ["Major_Issues", "DPV"]:
     st.plotly_chart(fig2, use_container_width=True)
 
 # ============================================
-# 📈 DPV PAGE
+# 📈 DPV
 # ============================================
 elif page == "DPV":
 
@@ -214,8 +193,10 @@ elif page == "DPV":
 
     st.subheader("DPV Analysis")
 
+    df.columns = df.columns.str.strip()
+
     if "Month" not in df.columns:
-        st.error("❌ 'Month' column missing in DPV sheet")
+        st.error("Month column missing")
         st.stop()
 
     for col in ["DPV %", "Paint issues %", "Other issues %"]:
@@ -224,7 +205,7 @@ elif page == "DPV":
         else:
             df[col] = 0
 
-    months = df["Month"].dropna().unique().tolist()
+    months = df["Month"].dropna().unique()
     selected_month = st.selectbox("Select Month", months)
 
     df_filtered = df[df["Month"] == selected_month]
@@ -246,8 +227,8 @@ elif page == "DPV":
 # ============================================
 else:
     st.subheader("Major Issues")
-    st.info("Check detailed data in Google Sheets")
+    st.info("Check Google Sheet")
 
-# ===== FOOTER =====
+# FOOTER
 st.markdown("---")
 st.caption("Developed by Surbhi | PDI Dashboard")
