@@ -32,12 +32,18 @@ def load_sheet(name):
         client.open("PDI_Dashboard").worksheet(name).get_all_records()
     )
 
+    # Clean columns
+    df.columns = df.columns.str.strip()
+
     for col in ["Plan", "Actual", "Pending", "Count"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
     if "Date" in df.columns:
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+
+    if "Model" in df.columns:
+        df["Model"] = df["Model"].astype(str).str.strip()
 
     return df
 
@@ -58,15 +64,20 @@ if page == "Executive_Summary":
 
     df = load_sheet("Daily_Clearing")
 
-    df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
-
     st.subheader("Executive Summary")
+
+    total_plan = df["Plan"].sum()
+    total_actual = df["Actual"].sum()
+    total_pending = df["Pending"].sum()
 
     col1, col2, col3 = st.columns(3)
 
-    col1.metric("Offered", int(df_grouped["Plan"].sum()))
-    col2.metric("Cleared", int(df_grouped["Actual"].sum()))
-    col3.metric("Pending", int(df_grouped["Pending"].sum()))
+    col1.metric("Offered", int(total_plan))
+    col2.metric("Cleared", int(total_actual))
+    col3.metric("Pending", int(total_pending))
+
+    # Daily trend
+    df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
 
     fig = go.Figure()
     fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Offered", marker_color="blue")
@@ -92,35 +103,40 @@ elif page == "Daily_Clearing":
     if selected_model != "All":
         df_filtered = df[df["Model"] == selected_model]
     else:
-        df_filtered = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
+        df_filtered = df.copy()
 
-    # ===== KPI CARDS =====
+    # ===== KPI =====
     col1, col2, col3 = st.columns(3)
 
     col1.metric("Offered", int(df_filtered["Plan"].sum()))
     col2.metric("Cleared", int(df_filtered["Actual"].sum()))
     col3.metric("Pending", int(df_filtered["Pending"].sum()))
 
-    # ===== MODEL-WISE COLOR CHART =====
-    st.subheader("Model-wise Performance")
+    # ===== MODEL COLOR MAP =====
+    color_map = {
+        "TR": "#1f77b4",
+        "LR": "#ff7f0e",
+        "V1": "#2ca02c",
+        "V2": "#d62728",
+        "V3": "#9467bd",
+        "ARMOURED": "#8c564b"
+    }
+
+    # ===== GRAPH =====
+    st.subheader("Model-wise Actual")
 
     fig = go.Figure()
 
-    models = df["Model"].unique() if selected_model == "All" else [selected_model]
-
-    colors = [
-        "#1f77b4", "#ff7f0e", "#2ca02c",
-        "#d62728", "#9467bd", "#8c564b"
-    ]
-
-    for i, model in enumerate(models):
+    for model in sorted(df["Model"].unique()):
         model_df = df[df["Model"] == model]
 
         fig.add_bar(
             x=model_df["Date"],
             y=model_df["Actual"],
             name=model,
-            marker_color=colors[i % len(colors)]
+            marker_color=color_map.get(model, "gray"),
+            text=model_df["Actual"],
+            textposition="outside"
         )
 
     fig.update_layout(barmode="group")
@@ -130,14 +146,15 @@ elif page == "Daily_Clearing":
     # ===== FORECAST =====
     st.subheader("Forecast")
 
-    df_sorted = df_filtered.sort_values("Date")
+    df_sum = df_filtered.groupby("Date")["Actual"].sum().reset_index()
+    df_sum = df_sum.sort_values("Date")
 
-    if len(df_sorted) > 2:
-        trend = np.poly1d(np.polyfit(range(len(df_sorted)), df_sorted["Actual"], 1))
+    if len(df_sum) > 2:
+        trend = np.poly1d(np.polyfit(range(len(df_sum)), df_sum["Actual"], 1))
 
         fig2 = go.Figure()
-        fig2.add_scatter(x=df_sorted["Date"], y=df_sorted["Actual"], name="Actual")
-        fig2.add_scatter(x=df_sorted["Date"], y=trend(range(len(df_sorted))), name="Trend")
+        fig2.add_scatter(x=df_sum["Date"], y=df_sum["Actual"], name="Actual")
+        fig2.add_scatter(x=df_sum["Date"], y=trend(range(len(df_sum))), name="Trend")
 
         st.plotly_chart(fig2, use_container_width=True)
 
@@ -158,7 +175,7 @@ elif page != "Major_Issues":
     if selected != "All":
         df = df[df["Issue Type"] == selected]
 
-    # ===== TOTAL ISSUES =====
+    # ===== TOTAL =====
     st.metric("Total Issues", int(df["Count"].sum()))
 
     # ===== TOP 10 =====
@@ -202,6 +219,7 @@ elif page != "Major_Issues":
 else:
     st.subheader("Major Issues")
     st.info("Check detailed data in Google Sheets")
+
 
 # ===== FOOTER =====
 st.markdown("---")
