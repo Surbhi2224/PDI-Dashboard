@@ -32,17 +32,16 @@ def load_sheet(name):
         client.open("PDI_Dashboard").worksheet(name).get_all_records()
     )
 
-    # Fix numeric
+    df.columns = df.columns.str.strip()
+
     for col in ["Plan", "Actual", "Pending", "Count"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-    # Fix date
     if "Date" in df.columns:
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
 
     return df
-
 
 # ===== SIDEBAR =====
 pages = [
@@ -68,6 +67,7 @@ page = st.sidebar.selectbox("Navigation", pages)
 if page == "Executive_Summary":
 
     df = load_sheet("Daily_Clearing")
+    df = df.dropna(subset=["Date"])
 
     df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
 
@@ -79,29 +79,31 @@ if page == "Executive_Summary":
     col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
     fig = go.Figure()
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Offered", marker_color="blue")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Cleared", marker_color="green")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending", marker_color="orange")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Offered")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Cleared")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending")
 
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# 📅 DAILY CLEARING (CLEAN GRAPH)
+# 📅 DAILY CLEARING
 # ============================================
 elif page == "Daily_Clearing":
 
     df = load_sheet("Daily_Clearing")
+    df = df.dropna(subset=["Date"])
 
     st.subheader("Daily Clearing")
 
-    # DROPDOWN
     models = ["All"] + sorted(df["Model"].unique())
     selected_model = st.selectbox("Select Model", models)
 
     if selected_model != "All":
-        df = df[df["Model"] == selected_model]
+        df_filtered = df[df["Model"] == selected_model]
+    else:
+        df_filtered = df
 
-    df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
+    df_grouped = df_filtered.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
 
     # KPI
     col1, col2, col3 = st.columns(3)
@@ -109,14 +111,30 @@ elif page == "Daily_Clearing":
     col2.metric("Cleared", int(df_grouped["Actual"].sum()))
     col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
-    # CLEAN GRAPH
+    # CLEAN MODEL GRAPH
+    st.subheader("Model-wise Clearing")
+
     fig = go.Figure()
 
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Offered")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Cleared")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending")
+    colors = {
+        "TR": "#1f77b4",
+        "LR": "#ff7f0e",
+        "V1": "#2ca02c",
+        "V2": "#d62728",
+        "V3": "#9467bd",
+        "ARMOURED": "#8c564b"
+    }
 
-    fig.update_layout(barmode="group")
+    for model in df["Model"].unique():
+        model_df = df[df["Model"] == model]
+
+        fig.add_scatter(
+            x=model_df["Date"],
+            y=model_df["Actual"],
+            mode="lines+markers",
+            name=model,
+            line=dict(color=colors.get(model, "white"))
+        )
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -133,7 +151,7 @@ elif page == "Daily_Clearing":
         st.plotly_chart(fig2, use_container_width=True)
 
 # ============================================
-# 📊 ALL ISSUE PAGES (INCLUDING OTHER)
+# 📊 ISSUE PAGES
 # ============================================
 elif page not in ["Major_Issues", "DPV"]:
 
@@ -141,17 +159,19 @@ elif page not in ["Major_Issues", "DPV"]:
 
     st.subheader(page.replace("_", " "))
 
-    # DROPDOWN
+    if "Issue Type" not in df.columns:
+        st.error("❌ 'Issue Type' column missing")
+        st.stop()
+
     issues = df["Issue Type"].dropna().unique().tolist()
     selected = st.selectbox("Select Issue", ["All"] + issues)
 
     if selected != "All":
         df = df[df["Issue Type"] == selected]
 
-    # TOTAL
     st.metric("Total Issues", int(df["Count"].sum()))
 
-    # TOP 10 GRAPH
+    # TOP 10
     top10 = df.groupby("Issue Type")["Count"].sum().nlargest(10).reset_index()
 
     fig = go.Figure()
@@ -164,7 +184,7 @@ elif page not in ["Major_Issues", "DPV"]:
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # PARETO ANALYSIS
+    # PARETO
     st.subheader("Pareto Analysis")
 
     pareto = df.groupby("Issue Type")["Count"].sum().reset_index()
@@ -194,13 +214,17 @@ elif page == "DPV":
 
     st.subheader("DPV Analysis")
 
-    # FIX VALUES
-    df["DPV %"] = pd.to_numeric(df["DPV %"], errors="coerce").fillna(0)
-    df["Paint issues %"] = pd.to_numeric(df["Paint issues %"], errors="coerce").fillna(0)
-    df["Other issues %"] = pd.to_numeric(df["Other issues %"], errors="coerce").fillna(0)
+    if "Month" not in df.columns:
+        st.error("❌ 'Month' column missing in DPV sheet")
+        st.stop()
 
-    # DROPDOWN
-    months = df["Month"].dropna().unique()
+    for col in ["DPV %", "Paint issues %", "Other issues %"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        else:
+            df[col] = 0
+
+    months = df["Month"].dropna().unique().tolist()
     selected_month = st.selectbox("Select Month", months)
 
     df_filtered = df[df["Month"] == selected_month]
@@ -224,6 +248,6 @@ else:
     st.subheader("Major Issues")
     st.info("Check detailed data in Google Sheets")
 
-# FOOTER
+# ===== FOOTER =====
 st.markdown("---")
 st.caption("Developed by Surbhi | PDI Dashboard")
