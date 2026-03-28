@@ -120,4 +120,4 @@ elif page == "Daily_Clearing":
     "V2": "#E45756",
     "V3": "#B279A2",
     "ARMOURED": "#FF9DA7"
-}
+}}
