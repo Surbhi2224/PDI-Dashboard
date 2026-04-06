@@ -25,7 +25,7 @@ creds = Credentials.from_service_account_info(
 
 client = gspread.authorize(creds)
 
-# ===== LOAD FUNCTION =====
+# ===== LOAD DATA =====
 @st.cache_data
 def load_sheet(name):
     df = pd.DataFrame(
@@ -34,8 +34,8 @@ def load_sheet(name):
 
     df.columns = df.columns.str.strip()
 
-    for col in ["Plan", "Actual", "Pending", "Count"]:
-        if col in df.columns:
+    for col in df.columns:
+        if "Count" in col or col in ["Plan", "Actual", "Pending"]:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
     if "Date" in df.columns:
@@ -43,117 +43,85 @@ def load_sheet(name):
 
     return df
 
-
 # ===== SIDEBAR =====
 pages = [
-    "Executive_Summary",
-    "Daily_Clearing",
-    "Electrical_Issues",
-    "Process_Issues",
-    "SQA_Issues",
-    "Paint_Issues",
-    "Design_Issue",
-    "Testing_Issue",
-    "Water_Ingress",
-    "Other_Issues",
-    "Major_Issues",
-    "DPV"
+    "Executive_Summary","Daily_Clearing","Electrical_Issues",
+    "Process_Issues","SQA_Issues","Paint_Issues",
+    "Design_Issue","Testing_Issue","Water_Ingress","Major_Issues","DPV"
 ]
 
 page = st.sidebar.selectbox("Navigation", pages)
 
 # ============================================
-# 📊 EXECUTIVE SUMMARY (COLORED FIXED)
+# 📊 EXECUTIVE SUMMARY
 # ============================================
 if page == "Executive_Summary":
 
     df = load_sheet("Daily_Clearing")
-    df = df.dropna(subset=["Date"])
-
     df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
 
-    st.subheader("Executive Summary")
-
     col1, col2, col3 = st.columns(3)
-    col1.metric("Offered", int(df_grouped["Plan"].sum()))
-    col2.metric("Cleared", int(df_grouped["Actual"].sum()))
+
+    col1.metric("Plan", int(df_grouped["Plan"].sum()))
+    col2.metric("Actual", int(df_grouped["Actual"].sum()))
     col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
     fig = go.Figure()
 
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Plan", marker_color="#4C78A8")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Actual", marker_color="#59A14F")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending", marker_color="#F28E2B")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Plan", marker_color="blue")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Actual", marker_color="green")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending", marker_color="orange")
 
     fig.update_layout(barmode="group")
 
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# 📅 DAILY CLEARING (STACKED + CLEAN)
+# 📅 DAILY CLEARING (STACKED CLEAN)
 # ============================================
 elif page == "Daily_Clearing":
 
     df = load_sheet("Daily_Clearing")
-    df = df.dropna(subset=["Date"])
 
     st.subheader("Daily Clearing")
 
-    models_list = ["All"] + sorted(df["Model"].unique())
-    selected_model = st.selectbox("Select Model", models_list)
+    models = sorted(df["Model"].unique())
+    selected_models = st.multiselect("Select Model", models, default=models)
 
-    if selected_model != "All":
-        df = df[df["Model"] == selected_model]
+    df = df[df["Model"].isin(selected_models)]
+
+    df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Plan", int(df["Plan"].sum()))
-    col2.metric("Actual", int(df["Actual"].sum()))
-    col3.metric("Pending", int(df["Pending"].sum()))
 
-    colors = {
-        "TR": "#4C78A8",
-        "LR": "#F58518",
-        "V1": "#54A24B",
-        "V2": "#E45756",
-        "V3": "#B279A2",
-        "ARMOURED": "#FF9DA7"
-    }
-
-    st.subheader("Model-wise Clearing")
+    col1.metric("Plan", int(df_grouped["Plan"].sum()))
+    col2.metric("Actual", int(df_grouped["Actual"].sum()))
+    col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
     fig = go.Figure()
 
-    for model in sorted(df["Model"].unique()):
-        model_df = df[df["Model"] == model]
+    fig.add_bar(
+        x=df_grouped["Date"],
+        y=df_grouped["Actual"],
+        name="Actual",
+        marker_color="green",
+        text=df_grouped["Actual"],
+        textposition="outside"
+    )
 
-        fig.add_bar(
-            x=model_df["Date"],
-            y=model_df["Actual"],
-            name=model,
-            marker_color=colors.get(model, "#999999")
-        )
+    fig.add_bar(
+        x=df_grouped["Date"],
+        y=df_grouped["Pending"],
+        name="Pending",
+        marker_color="orange"
+    )
 
     fig.update_layout(barmode="stack")
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # PLAN VS ACTUAL
-    st.subheader("Plan vs Actual vs Pending")
-
-    df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
-
-    fig2 = go.Figure()
-
-    fig2.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Plan", marker_color="#4C78A8")
-    fig2.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Actual", marker_color="#59A14F")
-    fig2.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending", marker_color="#F28E2B")
-
-    fig2.update_layout(barmode="group")
-
-    st.plotly_chart(fig2, use_container_width=True)
-
 # ============================================
-# 📊 ISSUE PAGES + PARETO
+# 📊 ISSUE PAGES (MONTH-WISE + PARETO)
 # ============================================
 elif page not in ["Major_Issues", "DPV"]:
 
@@ -161,44 +129,77 @@ elif page not in ["Major_Issues", "DPV"]:
 
     st.subheader(page.replace("_", " "))
 
+    # ===== MONTH DROPDOWN =====
+    month_map = {
+        "March": "Count(March)",
+        "April": "Count (April)"
+    }
+
+    selected_month = st.selectbox("Select Month", list(month_map.keys()))
+
+    count_col = month_map[selected_month]
+
+    if count_col not in df.columns:
+        st.error(f"{count_col} column not found")
+        st.stop()
+
+    # ===== ISSUE FILTER =====
     issues = df["Issue Type"].dropna().unique().tolist()
-    selected = st.selectbox("Select Issue", ["All"] + issues)
+    selected_issue = st.selectbox("Select Issue", ["All"] + issues)
 
-    if selected != "All":
-        df = df[df["Issue Type"] == selected]
+    if selected_issue != "All":
+        df = df[df["Issue Type"] == selected_issue]
 
-    st.metric("Total Issues", int(df["Count"].sum()))
+    st.metric("Total Issues", int(df[count_col].sum()))
 
-    top10 = df.groupby("Issue Type")["Count"].sum().nlargest(10).reset_index()
+    # ===== TOP 10 =====
+    top10 = df.groupby("Issue Type")[count_col].sum().nlargest(10).reset_index()
 
     fig = go.Figure()
-    fig.add_bar(x=top10["Issue Type"], y=top10["Count"], text=top10["Count"], textposition="outside")
+
+    fig.add_bar(
+        x=top10["Issue Type"],
+        y=top10[count_col],
+        text=top10[count_col],
+        textposition="outside",
+        marker_color="#4C78A8"
+    )
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # PARETO
+    # ===== PARETO =====
     st.subheader("Pareto Analysis")
 
-    pareto = df.groupby("Issue Type")["Count"].sum().reset_index()
-    pareto = pareto.sort_values(by="Count", ascending=False)
-    pareto["Cum%"] = pareto["Count"].cumsum() / pareto["Count"].sum() * 100
+    pareto = df.groupby("Issue Type")[count_col].sum().reset_index()
+    pareto = pareto.sort_values(by=count_col, ascending=False)
+
+    pareto["Cum%"] = pareto[count_col].cumsum() / pareto[count_col].sum() * 100
 
     fig2 = go.Figure()
-    fig2.add_bar(x=pareto["Issue Type"], y=pareto["Count"], name="Count")
+
+    fig2.add_bar(
+        x=pareto["Issue Type"],
+        y=pareto[count_col],
+        name="Count",
+        marker_color="#F28E2B"
+    )
 
     fig2.add_scatter(
         x=pareto["Issue Type"],
         y=pareto["Cum%"],
         yaxis="y2",
-        name="Cumulative %"
+        name="Cum%",
+        mode="lines+markers"
     )
+
+    fig2.add_hline(y=80, line_dash="dash", line_color="red")
 
     fig2.update_layout(yaxis2=dict(overlaying="y", side="right"))
 
     st.plotly_chart(fig2, use_container_width=True)
 
 # ============================================
-# 📈 DPV
+# 📈 DPV PAGE
 # ============================================
 elif page == "DPV":
 
@@ -206,26 +207,16 @@ elif page == "DPV":
 
     st.subheader("DPV Analysis")
 
-    for col in ["DPV %", "Paint issues %", "Other issues %"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-        else:
-            df[col] = 0
-
     months = df["Month"].dropna().unique()
     selected_month = st.selectbox("Select Month", months)
 
-    df_filtered = df[df["Month"] == selected_month]
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("DPV %", float(df_filtered["DPV %"].values[0]))
-    col2.metric("Paint %", float(df_filtered["Paint issues %"].values[0]))
-    col3.metric("Other %", float(df_filtered["Other issues %"].values[0]))
+    df = df[df["Month"] == selected_month]
 
     fig = go.Figure()
-    fig.add_scatter(x=df["Month"], y=df["DPV %"], name="DPV %")
-    fig.add_scatter(x=df["Month"], y=df["Paint issues %"], name="Paint %")
-    fig.add_scatter(x=df["Month"], y=df["Other issues %"], name="Other %")
+
+    fig.add_bar(x=df["Month"], y=df["DPV %"], name="DPV", marker_color="blue")
+    fig.add_bar(x=df["Month"], y=df["Paint issues %"], name="Paint", marker_color="red")
+    fig.add_bar(x=df["Month"], y=df["Other issues %"], name="Other", marker_color="green")
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -234,8 +225,744 @@ elif page == "DPV":
 # ============================================
 else:
     st.subheader("Major Issues")
-    st.info("Check Google Sheet")
+    st.info("Check Google Sheet for details")
 
-# FOOTER
+# ===== FOOTER =====
 st.markdown("---")
 st.caption("Developed by Surbhi | PDI Dashboard")
+
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
