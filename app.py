@@ -3,7 +3,6 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 import plotly.graph_objects as go
-import numpy as np
 from streamlit_autorefresh import st_autorefresh
 
 # ===== CONFIG =====
@@ -68,28 +67,18 @@ if page == "Executive_Summary":
     df = load_sheet("Daily_Clearing")
     df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
 
-    total_plan = int(df_grouped["Plan"].sum())
-    total_actual = int(df_grouped["Actual"].sum())
-    total_pending = int(df_grouped["Pending"].sum())
-
     st.subheader("Executive Summary")
 
     col1, col2, col3 = st.columns(3)
-
-    col1.metric("Offered", total_plan)
-    col2.metric("Cleared", total_actual, delta=total_actual-total_plan)
-    col3.metric("Pending", total_pending)
+    col1.metric("Offered", int(df_grouped["Plan"].sum()))
+    col2.metric("Cleared", int(df_grouped["Actual"].sum()))
+    col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
     fig = go.Figure()
 
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"],
-                name="Plan", marker_color="#A0C4FF")
-
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"],
-                name="Actual", marker_color="#2ca02c")
-
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"],
-                name="Pending", marker_color="#ff7f0e")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Plan", marker_color="#A0C4FF")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Actual", marker_color="#2ca02c")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending", marker_color="#ff7f0e")
 
     fig.update_layout(barmode="group")
 
@@ -112,37 +101,31 @@ elif page == "Daily_Clearing":
 
     df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
 
-    # KPI
     col1, col2, col3 = st.columns(3)
     col1.metric("Plan", int(df_grouped["Plan"].sum()))
     col2.metric("Actual", int(df_grouped["Actual"].sum()))
     col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
-    # ALERT
+    # Alert
     if df_grouped["Pending"].sum() > 100:
         st.error("⚠ High Pending!")
 
-    # TOP MODEL
+    # Top model
     top_model = df.groupby("Model")["Actual"].sum().idxmax()
     st.success(f"🏆 Top Model: {top_model}")
 
-    # STACKED BAR
     fig = go.Figure()
 
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"],
-                name="Actual", marker_color="#2ca02c",
-                text=df_grouped["Actual"], textposition="inside")
+    fig.add_bar(
+        x=df_grouped["Date"], y=df_grouped["Actual"],
+        name="Actual", marker_color="#2ca02c",
+        text=df_grouped["Actual"], textposition="inside"
+    )
 
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"],
-                name="Pending", marker_color="#ff7f0e",
-                text=df_grouped["Pending"], textposition="inside")
-
-    # TREND LINE
-    fig.add_scatter(
-        x=df_grouped["Date"],
-        y=df_grouped["Actual"],
-        mode="lines",
-        name="Trend"
+    fig.add_bar(
+        x=df_grouped["Date"], y=df_grouped["Pending"],
+        name="Pending", marker_color="#ff7f0e",
+        text=df_grouped["Pending"], textposition="inside"
     )
 
     fig.update_layout(barmode="stack")
@@ -170,30 +153,15 @@ elif page == "Model_Summary":
     col2.metric("Cleared", int(df["Cleared"].sum()))
     col3.metric("Pending", int(df["Pending"].sum()))
 
-    # STACKED BAR
     fig = go.Figure()
 
-    fig.add_bar(x=df["Model"], y=df["Cleared"],
-                name="Cleared", marker_color="#2ca02c")
-
-    fig.add_bar(x=df["Model"], y=df["Pending"],
-                name="Pending", marker_color="#ff7f0e")
+    fig.add_bar(x=df["Model"], y=df["Cleared"], name="Cleared", marker_color="#2ca02c")
+    fig.add_bar(x=df["Model"], y=df["Pending"], name="Pending", marker_color="#ff7f0e")
 
     fig.update_layout(barmode="stack")
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # PIE CHART
-    st.subheader("Model Contribution")
-
-    fig2 = go.Figure(data=[go.Pie(
-        labels=df["Model"],
-        values=df["Cleared"]
-    )])
-
-    st.plotly_chart(fig2, use_container_width=True)
-
-    # TABLE
     st.dataframe(df)
 
 # ============================================
@@ -219,7 +187,7 @@ elif page == "DPV":
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# 📊 ISSUE PAGES
+# 📊 ISSUE PAGES (UPDATED 🔥)
 # ============================================
 elif page != "Major_Issues":
 
@@ -227,12 +195,19 @@ elif page != "Major_Issues":
 
     st.subheader(page.replace("_", " "))
 
-    # SEARCH
-    search = st.text_input("Search Issue")
+    # ===== DROPDOWN + SEARCH =====
+    issue_list = ["All"] + sorted(df["Issue Type"].dropna().unique())
+    selected_issue = st.selectbox("Select Issue", issue_list)
+
+    search = st.text_input("🔍 Search Issue")
+
+    if selected_issue != "All":
+        df = df[df["Issue Type"] == selected_issue]
 
     if search:
-        df = df[df["Issue Type"].str.contains(search, case=False)]
+        df = df[df["Issue Type"].str.contains(search, case=False, na=False)]
 
+    # ===== MONTH DROPDOWN =====
     month_cols = [col for col in df.columns if col not in ["Model","Issue Type"]]
     selected_month = st.selectbox("Select Month", month_cols)
 
@@ -249,7 +224,7 @@ elif page != "Major_Issues":
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # PARETO
+    # ===== PARETO =====
     st.subheader("Pareto Analysis")
 
     pareto = df_work.sort_values(by="Count", ascending=False)
@@ -258,8 +233,12 @@ elif page != "Major_Issues":
     fig2 = go.Figure()
     fig2.add_bar(x=pareto["Issue Type"], y=pareto["Count"])
 
-    fig2.add_scatter(x=pareto["Issue Type"], y=pareto["Cum%"],
-                     yaxis="y2", mode="lines+markers")
+    fig2.add_scatter(
+        x=pareto["Issue Type"],
+        y=pareto["Cum%"],
+        yaxis="y2",
+        mode="lines+markers"
+    )
 
     fig2.update_layout(yaxis2=dict(overlaying="y", side="right"))
 
@@ -275,47 +254,6 @@ else:
 # ===== FOOTER =====
 st.markdown("---")
 st.caption("Developed by Surbhi | PDI Dashboard")
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
 		
 		
 		
