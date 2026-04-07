@@ -75,13 +75,11 @@ if page == "Executive_Summary":
     col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
     fig = go.Figure()
-
     fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Plan", marker_color="#A0C4FF")
     fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Actual", marker_color="#2ca02c")
     fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending", marker_color="#ff7f0e")
 
     fig.update_layout(barmode="group")
-
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
@@ -106,13 +104,8 @@ elif page == "Daily_Clearing":
     col2.metric("Actual", int(df_grouped["Actual"].sum()))
     col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
-    # Alert
     if df_grouped["Pending"].sum() > 100:
         st.error("⚠ High Pending!")
-
-    # Top model
-    top_model = df.groupby("Model")["Actual"].sum().idxmax()
-    st.success(f"🏆 Top Model: {top_model}")
 
     fig = go.Figure()
 
@@ -129,7 +122,6 @@ elif page == "Daily_Clearing":
     )
 
     fig.update_layout(barmode="stack")
-
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
@@ -154,12 +146,10 @@ elif page == "Model_Summary":
     col3.metric("Pending", int(df["Pending"].sum()))
 
     fig = go.Figure()
-
     fig.add_bar(x=df["Model"], y=df["Cleared"], name="Cleared", marker_color="#2ca02c")
     fig.add_bar(x=df["Model"], y=df["Pending"], name="Pending", marker_color="#ff7f0e")
 
     fig.update_layout(barmode="stack")
-
     st.plotly_chart(fig, use_container_width=True)
 
     st.dataframe(df)
@@ -179,7 +169,6 @@ elif page == "DPV":
     df = df[df["Month"] == selected_month]
 
     fig = go.Figure()
-
     fig.add_bar(x=df["Month"], y=df["DPV %"], name="DPV %")
     fig.add_bar(x=df["Month"], y=df["Paint issues %"], name="Paint %")
     fig.add_bar(x=df["Month"], y=df["Other issues %"], name="Other %")
@@ -187,7 +176,7 @@ elif page == "DPV":
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# 📊 ISSUE PAGES (UPDATED 🔥)
+# 📊 ISSUE PAGES (FINAL CLEAN)
 # ============================================
 elif page != "Major_Issues":
 
@@ -195,19 +184,18 @@ elif page != "Major_Issues":
 
     st.subheader(page.replace("_", " "))
 
-    # ===== DROPDOWN + SEARCH =====
-    issue_list = ["All"] + sorted(df["Issue Type"].dropna().unique())
-    selected_issue = st.selectbox("Select Issue", issue_list)
+    # ✅ ONLY SMART DROPDOWN
+    issue_list = sorted(df["Issue Type"].dropna().unique())
 
-    search = st.text_input("🔍 Search Issue")
+    selected_issue = st.selectbox(
+        "🔍 Search or Select Issue",
+        ["All"] + issue_list
+    )
 
     if selected_issue != "All":
         df = df[df["Issue Type"] == selected_issue]
 
-    if search:
-        df = df[df["Issue Type"].str.contains(search, case=False, na=False)]
-
-    # ===== MONTH DROPDOWN =====
+    # ===== MONTH SELECT =====
     month_cols = [col for col in df.columns if col not in ["Model","Issue Type"]]
     selected_month = st.selectbox("Select Month", month_cols)
 
@@ -219,8 +207,12 @@ elif page != "Major_Issues":
     top10 = df_work.sort_values(by="Count", ascending=False).head(10)
 
     fig = go.Figure()
-    fig.add_bar(x=top10["Issue Type"], y=top10["Count"],
-                text=top10["Count"], textposition="outside")
+    fig.add_bar(
+        x=top10["Issue Type"],
+        y=top10["Count"],
+        text=top10["Count"],
+        textposition="outside"
+    )
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -254,10 +246,6 @@ else:
 # ===== FOOTER =====
 st.markdown("---")
 st.caption("Developed by Surbhi | PDI Dashboard")
-		
-		
-		
-		
 		
 		
 		
