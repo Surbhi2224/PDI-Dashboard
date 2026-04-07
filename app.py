@@ -7,6 +7,22 @@ from streamlit_autorefresh import st_autorefresh
 
 # ===== CONFIG =====
 st.set_page_config(layout="wide", page_title="PDI Dashboard")
+
+# 🌙 DARK MODE CSS
+st.markdown("""
+<style>
+body {
+    background-color: #0E1117;
+    color: white;
+}
+.stMetric {
+    background-color: #1c1f26;
+    padding: 10px;
+    border-radius: 10px;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st_autorefresh(interval=5000, key="refresh")
 
 st.title("🚗 PDI Production Dashboard")
@@ -75,11 +91,22 @@ if page == "Executive_Summary":
     col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
     fig = go.Figure()
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Plan", marker_color="#A0C4FF")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Actual", marker_color="#2ca02c")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending", marker_color="#ff7f0e")
 
-    fig.update_layout(barmode="group")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"],
+                name="Plan", marker_color="#4cc9f0")
+
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"],
+                name="Actual", marker_color="#00f5d4")
+
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"],
+                name="Pending", marker_color="#ff4d6d")
+
+    fig.update_layout(
+        barmode="group",
+        template="plotly_dark",
+        transition_duration=800
+    )
+
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
@@ -110,18 +137,29 @@ elif page == "Daily_Clearing":
     fig = go.Figure()
 
     fig.add_bar(
-        x=df_grouped["Date"], y=df_grouped["Actual"],
-        name="Actual", marker_color="#2ca02c",
-        text=df_grouped["Actual"], textposition="inside"
+        x=df_grouped["Date"],
+        y=df_grouped["Actual"],
+        name="Actual",
+        marker_color="#00f5d4",
+        text=df_grouped["Actual"],
+        textposition="inside"
     )
 
     fig.add_bar(
-        x=df_grouped["Date"], y=df_grouped["Pending"],
-        name="Pending", marker_color="#ff7f0e",
-        text=df_grouped["Pending"], textposition="inside"
+        x=df_grouped["Date"],
+        y=df_grouped["Pending"],
+        name="Pending",
+        marker_color="#ff4d6d",
+        text=df_grouped["Pending"],
+        textposition="inside"
     )
 
-    fig.update_layout(barmode="stack")
+    fig.update_layout(
+        barmode="stack",
+        template="plotly_dark",
+        transition_duration=800
+    )
+
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
@@ -138,21 +176,26 @@ elif page == "Model_Summary":
 
     df = df[df["Month"] == selected_month]
 
-    df["% Complete"] = (df["Cleared"] / df["Requirement"]) * 100
-
     col1, col2, col3 = st.columns(3)
     col1.metric("Requirement", int(df["Requirement"].sum()))
     col2.metric("Cleared", int(df["Cleared"].sum()))
     col3.metric("Pending", int(df["Pending"].sum()))
 
     fig = go.Figure()
-    fig.add_bar(x=df["Model"], y=df["Cleared"], name="Cleared", marker_color="#2ca02c")
-    fig.add_bar(x=df["Model"], y=df["Pending"], name="Pending", marker_color="#ff7f0e")
 
-    fig.update_layout(barmode="stack")
+    fig.add_bar(x=df["Model"], y=df["Cleared"],
+                name="Cleared", marker_color="#00f5d4")
+
+    fig.add_bar(x=df["Model"], y=df["Pending"],
+                name="Pending", marker_color="#ff4d6d")
+
+    fig.update_layout(
+        barmode="stack",
+        template="plotly_dark",
+        transition_duration=800
+    )
+
     st.plotly_chart(fig, use_container_width=True)
-
-    st.dataframe(df)
 
 # ============================================
 # 📈 DPV
@@ -169,14 +212,17 @@ elif page == "DPV":
     df = df[df["Month"] == selected_month]
 
     fig = go.Figure()
+
     fig.add_bar(x=df["Month"], y=df["DPV %"], name="DPV %")
     fig.add_bar(x=df["Month"], y=df["Paint issues %"], name="Paint %")
     fig.add_bar(x=df["Month"], y=df["Other issues %"], name="Other %")
 
+    fig.update_layout(template="plotly_dark", transition_duration=800)
+
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# 📊 ISSUE PAGES (FINAL CLEAN)
+# 📊 ISSUE PAGES
 # ============================================
 elif page != "Major_Issues":
 
@@ -184,7 +230,6 @@ elif page != "Major_Issues":
 
     st.subheader(page.replace("_", " "))
 
-    # ✅ ONLY SMART DROPDOWN
     issue_list = sorted(df["Issue Type"].dropna().unique())
 
     selected_issue = st.selectbox(
@@ -195,7 +240,6 @@ elif page != "Major_Issues":
     if selected_issue != "All":
         df = df[df["Issue Type"] == selected_issue]
 
-    # ===== MONTH SELECT =====
     month_cols = [col for col in df.columns if col not in ["Model","Issue Type"]]
     selected_month = st.selectbox("Select Month", month_cols)
 
@@ -214,9 +258,11 @@ elif page != "Major_Issues":
         textposition="outside"
     )
 
+    fig.update_layout(template="plotly_dark", transition_duration=800)
+
     st.plotly_chart(fig, use_container_width=True)
 
-    # ===== PARETO =====
+    # Pareto
     st.subheader("Pareto Analysis")
 
     pareto = df_work.sort_values(by="Count", ascending=False)
@@ -232,7 +278,11 @@ elif page != "Major_Issues":
         mode="lines+markers"
     )
 
-    fig2.update_layout(yaxis2=dict(overlaying="y", side="right"))
+    fig2.update_layout(
+        template="plotly_dark",
+        yaxis2=dict(overlaying="y", side="right"),
+        transition_duration=800
+    )
 
     st.plotly_chart(fig2, use_container_width=True)
 
@@ -246,34 +296,6 @@ else:
 # ===== FOOTER =====
 st.markdown("---")
 st.caption("Developed by Surbhi | PDI Dashboard")
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
 		
 		
 		
