@@ -3,7 +3,6 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 import plotly.graph_objects as go
-import numpy as np
 from streamlit_autorefresh import st_autorefresh
 
 # ===== CONFIG =====
@@ -61,7 +60,7 @@ pages = [
 page = st.sidebar.selectbox("Navigation", pages)
 
 # ============================================
-# 📊 EXECUTIVE SUMMARY (COLORED)
+# 📊 EXECUTIVE SUMMARY
 # ============================================
 if page == "Executive_Summary":
 
@@ -72,44 +71,22 @@ if page == "Executive_Summary":
     st.subheader("Executive Summary")
 
     col1, col2, col3 = st.columns(3)
-
     col1.metric("Offered", int(df_grouped["Plan"].sum()))
     col2.metric("Cleared", int(df_grouped["Actual"].sum()))
     col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
     fig = go.Figure()
 
-    fig.add_bar(
-        x=df_grouped["Date"],
-        y=df_grouped["Plan"],
-        name="Plan",
-        marker_color="#1f77b4"
-    )
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Plan", marker_color="#1f77b4")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Actual", marker_color="#2ca02c")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending", marker_color="#ff7f0e")
 
-    fig.add_bar(
-        x=df_grouped["Date"],
-        y=df_grouped["Actual"],
-        name="Actual",
-        marker_color="#2ca02c"
-    )
-
-    fig.add_bar(
-        x=df_grouped["Date"],
-        y=df_grouped["Pending"],
-        name="Pending",
-        marker_color="#ff7f0e"
-    )
-
-    fig.update_layout(
-        barmode="group",
-        xaxis_title="Date",
-        yaxis_title="Vehicles"
-    )
+    fig.update_layout(barmode="group")
 
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# 📅 DAILY CLEARING (AS IT IS)
+# 📅 DAILY CLEARING
 # ============================================
 elif page == "Daily_Clearing":
 
@@ -117,7 +94,7 @@ elif page == "Daily_Clearing":
 
     st.subheader("Daily Clearing")
 
-    models = ["All"] + sorted(df["Model"].unique())
+    models = ["All"] + sorted(df["Model"].dropna().unique())
     selected_model = st.selectbox("Select Model", models)
 
     if selected_model != "All":
@@ -132,30 +109,20 @@ elif page == "Daily_Clearing":
 
     fig = go.Figure()
 
-    fig.add_bar(
-        x=df_grouped["Date"],
-        y=df_grouped["Actual"],
-        name="Actual",
-        marker_color="#2ca02c",
-        text=df_grouped["Actual"],
-        textposition="inside"
-    )
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"],
+                name="Actual", marker_color="#2ca02c",
+                text=df_grouped["Actual"], textposition="inside")
 
-    fig.add_bar(
-        x=df_grouped["Date"],
-        y=df_grouped["Pending"],
-        name="Pending",
-        marker_color="#ff7f0e",
-        text=df_grouped["Pending"],
-        textposition="inside"
-    )
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"],
+                name="Pending", marker_color="#ff7f0e",
+                text=df_grouped["Pending"], textposition="inside")
 
     fig.update_layout(barmode="stack")
 
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# 📊 MODEL SUMMARY (NEW - MONTH DROPDOWN)
+# 📊 MODEL SUMMARY (MONTH DROPDOWN)
 # ============================================
 elif page == "Model_Summary":
 
@@ -175,30 +142,20 @@ elif page == "Model_Summary":
 
     fig = go.Figure()
 
-    fig.add_bar(
-        x=df["Model"],
-        y=df["Cleared"],
-        name="Cleared",
-        marker_color="#2ca02c",
-        text=df["Cleared"],
-        textposition="inside"
-    )
+    fig.add_bar(x=df["Model"], y=df["Cleared"],
+                name="Cleared", marker_color="#2ca02c",
+                text=df["Cleared"], textposition="inside")
 
-    fig.add_bar(
-        x=df["Model"],
-        y=df["Pending"],
-        name="Pending",
-        marker_color="#ff7f0e",
-        text=df["Pending"],
-        textposition="inside"
-    )
+    fig.add_bar(x=df["Model"], y=df["Pending"],
+                name="Pending", marker_color="#ff7f0e",
+                text=df["Pending"], textposition="inside")
 
     fig.update_layout(barmode="stack")
 
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# 📈 DPV PAGE
+# 📈 DPV
 # ============================================
 elif page == "DPV":
 
@@ -220,7 +177,7 @@ elif page == "DPV":
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# 📊 ISSUE PAGES (NO CHANGE)
+# 📊 ISSUE PAGES (ALL SAME)
 # ============================================
 elif page != "Major_Issues":
 
@@ -229,7 +186,6 @@ elif page != "Major_Issues":
     st.subheader(page.replace("_", " "))
 
     month_cols = [col for col in df.columns if col not in ["Model","Issue Type"]]
-
     selected_month = st.selectbox("Select Month", month_cols)
 
     df_work = df[["Issue Type", selected_month]].copy()
@@ -240,13 +196,8 @@ elif page != "Major_Issues":
     top10 = df_work.sort_values(by="Count", ascending=False).head(10)
 
     fig = go.Figure()
-
-    fig.add_bar(
-        x=top10["Issue Type"],
-        y=top10["Count"],
-        text=top10["Count"],
-        textposition="outside"
-    )
+    fig.add_bar(x=top10["Issue Type"], y=top10["Count"],
+                text=top10["Count"], textposition="outside")
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -257,14 +208,10 @@ elif page != "Major_Issues":
     pareto["Cum%"] = pareto["Count"].cumsum() / pareto["Count"].sum() * 100
 
     fig2 = go.Figure()
-
     fig2.add_bar(x=pareto["Issue Type"], y=pareto["Count"])
 
-    fig2.add_scatter(
-        x=pareto["Issue Type"],
-        y=pareto["Cum%"],
-        yaxis="y2"
-    )
+    fig2.add_scatter(x=pareto["Issue Type"], y=pareto["Cum%"],
+                     yaxis="y2", mode="lines+markers")
 
     fig2.update_layout(yaxis2=dict(overlaying="y", side="right"))
 
@@ -281,8 +228,7 @@ else:
 st.markdown("---")
 st.caption("Developed by Surbhi | PDI Dashboard")
 
-   
-		
+
 		
 		
 		
