@@ -3,13 +3,14 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 import plotly.graph_objects as go
+import numpy as np
 from streamlit_autorefresh import st_autorefresh
 
 # ===== CONFIG =====
 st.set_page_config(layout="wide", page_title="PDI Dashboard")
 st_autorefresh(interval=5000, key="refresh")
 
-st.title("PDI Production Dashboard")
+st.title("🚗 PDI Production Dashboard")
 
 # ===== GOOGLE SHEETS =====
 scope = [
@@ -65,21 +66,30 @@ page = st.sidebar.selectbox("Navigation", pages)
 if page == "Executive_Summary":
 
     df = load_sheet("Daily_Clearing")
-
     df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
+
+    total_plan = int(df_grouped["Plan"].sum())
+    total_actual = int(df_grouped["Actual"].sum())
+    total_pending = int(df_grouped["Pending"].sum())
 
     st.subheader("Executive Summary")
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Offered", int(df_grouped["Plan"].sum()))
-    col2.metric("Cleared", int(df_grouped["Actual"].sum()))
-    col3.metric("Pending", int(df_grouped["Pending"].sum()))
+
+    col1.metric("Offered", total_plan)
+    col2.metric("Cleared", total_actual, delta=total_actual-total_plan)
+    col3.metric("Pending", total_pending)
 
     fig = go.Figure()
 
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"], name="Plan", marker_color="#1f77b4")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"], name="Actual", marker_color="#2ca02c")
-    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"], name="Pending", marker_color="#ff7f0e")
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Plan"],
+                name="Plan", marker_color="#A0C4FF")
+
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"],
+                name="Actual", marker_color="#2ca02c")
+
+    fig.add_bar(x=df_grouped["Date"], y=df_grouped["Pending"],
+                name="Pending", marker_color="#ff7f0e")
 
     fig.update_layout(barmode="group")
 
@@ -92,7 +102,7 @@ elif page == "Daily_Clearing":
 
     df = load_sheet("Daily_Clearing")
 
-    st.subheader("Daily Clearing")
+    st.subheader("📅 Daily Clearing")
 
     models = ["All"] + sorted(df["Model"].dropna().unique())
     selected_model = st.selectbox("Select Model", models)
@@ -102,11 +112,21 @@ elif page == "Daily_Clearing":
 
     df_grouped = df.groupby("Date")[["Plan","Actual","Pending"]].sum().reset_index()
 
+    # KPI
     col1, col2, col3 = st.columns(3)
     col1.metric("Plan", int(df_grouped["Plan"].sum()))
     col2.metric("Actual", int(df_grouped["Actual"].sum()))
     col3.metric("Pending", int(df_grouped["Pending"].sum()))
 
+    # ALERT
+    if df_grouped["Pending"].sum() > 100:
+        st.error("⚠ High Pending!")
+
+    # TOP MODEL
+    top_model = df.groupby("Model")["Actual"].sum().idxmax()
+    st.success(f"🏆 Top Model: {top_model}")
+
+    # STACKED BAR
     fig = go.Figure()
 
     fig.add_bar(x=df_grouped["Date"], y=df_grouped["Actual"],
@@ -117,42 +137,64 @@ elif page == "Daily_Clearing":
                 name="Pending", marker_color="#ff7f0e",
                 text=df_grouped["Pending"], textposition="inside")
 
+    # TREND LINE
+    fig.add_scatter(
+        x=df_grouped["Date"],
+        y=df_grouped["Actual"],
+        mode="lines",
+        name="Trend"
+    )
+
     fig.update_layout(barmode="stack")
 
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# 📊 MODEL SUMMARY (MONTH DROPDOWN)
+# 📊 MODEL SUMMARY
 # ============================================
 elif page == "Model_Summary":
 
     df = load_sheet("Model_Summary")
 
-    st.subheader("Model Summary")
+    st.subheader("📊 Model Summary")
 
     months = sorted(df["Month"].dropna().unique())
     selected_month = st.selectbox("Select Month", months)
 
     df = df[df["Month"] == selected_month]
 
+    df["% Complete"] = (df["Cleared"] / df["Requirement"]) * 100
+
     col1, col2, col3 = st.columns(3)
     col1.metric("Requirement", int(df["Requirement"].sum()))
     col2.metric("Cleared", int(df["Cleared"].sum()))
     col3.metric("Pending", int(df["Pending"].sum()))
 
+    # STACKED BAR
     fig = go.Figure()
 
     fig.add_bar(x=df["Model"], y=df["Cleared"],
-                name="Cleared", marker_color="#2ca02c",
-                text=df["Cleared"], textposition="inside")
+                name="Cleared", marker_color="#2ca02c")
 
     fig.add_bar(x=df["Model"], y=df["Pending"],
-                name="Pending", marker_color="#ff7f0e",
-                text=df["Pending"], textposition="inside")
+                name="Pending", marker_color="#ff7f0e")
 
     fig.update_layout(barmode="stack")
 
     st.plotly_chart(fig, use_container_width=True)
+
+    # PIE CHART
+    st.subheader("Model Contribution")
+
+    fig2 = go.Figure(data=[go.Pie(
+        labels=df["Model"],
+        values=df["Cleared"]
+    )])
+
+    st.plotly_chart(fig2, use_container_width=True)
+
+    # TABLE
+    st.dataframe(df)
 
 # ============================================
 # 📈 DPV
@@ -177,13 +219,19 @@ elif page == "DPV":
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# 📊 ISSUE PAGES (ALL SAME)
+# 📊 ISSUE PAGES
 # ============================================
 elif page != "Major_Issues":
 
     df = load_sheet(page)
 
     st.subheader(page.replace("_", " "))
+
+    # SEARCH
+    search = st.text_input("Search Issue")
+
+    if search:
+        df = df[df["Issue Type"].str.contains(search, case=False)]
 
     month_cols = [col for col in df.columns if col not in ["Model","Issue Type"]]
     selected_month = st.selectbox("Select Month", month_cols)
@@ -201,7 +249,7 @@ elif page != "Major_Issues":
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # Pareto
+    # PARETO
     st.subheader("Pareto Analysis")
 
     pareto = df_work.sort_values(by="Count", ascending=False)
@@ -227,42 +275,6 @@ else:
 # ===== FOOTER =====
 st.markdown("---")
 st.caption("Developed by Surbhi | PDI Dashboard")
-
-
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
 		
 		
 		
